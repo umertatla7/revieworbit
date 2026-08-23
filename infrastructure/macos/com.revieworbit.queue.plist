@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.revieworbit.queue</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/umertatla/Library/Application Support/Herd/bin/php</string>
+        <string>artisan</string>
+        <string>queue:work</string>
+        <string>--queue=webhooks,integrations,messaging,media,analytics,default</string>
+        <string>--sleep=1</string>
+        <string>--tries=3</string>
+        <string>--timeout=120</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/umertatla/Documents/revieworbit/apps/api</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/revieworbit-queue.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/revieworbit-queue-error.log</string>
+</dict>
+</plist>

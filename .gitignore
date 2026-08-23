@@ -1,0 +1,26 @@
+.DS_Store
+.env
+*.local
+*.log
+.idea/
+.vscode/
+node_modules/
+vendor/
+.next/
+coverage/
+playwright-report/
+test-results/
+nginx.pid
+client_body_temp/
+fastcgi_temp/
+proxy_temp/
+apps/web/src/app/globals 2.css
+apps/web/src/app/layout 2.tsx
+apps/web/src/app/page 2.tsx
+apps/api/storage/*.key
+apps/api/storage/logs/*
+apps/api/storage/framework/cache/*
+apps/api/storage/framework/sessions/*
+apps/api/storage/framework/views/*
+apps/api/database/database.sqlite
+!apps/api/storage/logs/.gitignore

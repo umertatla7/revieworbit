@@ -1,0 +1,146 @@
+name: revieworbit
+
+x-api: &api
+  build:
+    context: .
+    dockerfile: infrastructure/docker/api.Dockerfile
+  env_file:
+    - path: .env.example
+    - path: .env
+      required: false
+  working_dir: /var/www/html
+  volumes:
+    - ./apps/api:/var/www/html
+    - api_vendor:/var/www/html/vendor
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0"
+    volumes:
+      - ./apps/web:/app
+      - web_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    <<: *api
+    command: sh -c "composer install --no-interaction && php-fpm"
+    healthcheck:
+      test: ["CMD-SHELL", "php-fpm -t >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  nginx:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/nginx.Dockerfile
+    volumes:
+      - ./apps/api/public:/var/www/html/public:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *api
+    command: sh -c "composer install --no-interaction && php artisan queue:work redis --queue=webhooks,integrations,messaging,media,analytics,default --sleep=1 --tries=3 --timeout=120"
+    restart: unless-stopped
+
+  horizon:
+    <<: *api
+    command: sh -c "composer install --no-interaction && php artisan horizon"
+    restart: unless-stopped
+
+  scheduler:
+    <<: *api
+    command: sh -c "composer install --no-interaction && php artisan schedule:work"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-revieworbit}
+      POSTGRES_USER: ${POSTGRES_USER:-revieworbit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-revieworbit_local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-revieworbit}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-revieworbit_minio_local}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  api_vendor:
+  web_node_modules:
+  postgres_data:
+  redis_data:
+  minio_data:

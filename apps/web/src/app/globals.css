@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@font-face { font-family: "Poppins"; src: url("/fonts/Poppins-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Montserrat"; src: url("/fonts/Montserrat.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Playfair Display"; src: url("/fonts/PlayfairDisplay.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Pacifico"; src: url("/fonts/Pacifico-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Great Vibes"; src: url("/fonts/GreatVibes-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Lobster"; src: url("/fonts/Lobster-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Sacramento"; src: url("/fonts/Sacramento-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "Allura"; src: url("/fonts/Allura-Regular.ttf") format("truetype"); font-display: swap; }
+
+:root {
+  --background: #f3f5f2;
+  --foreground: #17201b;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ink: #17201b;
+  --color-forest: #174d3b;
+  --color-mint: #d8f15a;
+  --color-paper: #f6f7f2;
+  --font-sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
+
+button, a, input, textarea, select { outline-color: #174d3b; }
+
+@layer components {
+  .field { @apply mt-2 w-full rounded-lg border border-ink/12 bg-white px-3.5 py-2.5 text-sm font-normal text-ink shadow-sm transition focus:border-forest focus:ring-2 focus:ring-forest/10; }
+  .label { @apply block text-sm font-semibold text-ink; }
+  .button-primary { @apply rounded-lg bg-forest px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50; }
+  .button-secondary { @apply rounded-lg border border-ink/12 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:border-forest/35 hover:bg-paper disabled:cursor-not-allowed disabled:opacity-50; }
+  .panel { @apply rounded-xl border border-ink/8 bg-white p-5 shadow-[0_8px_28px_rgba(23,32,27,0.045)]; }
+  .eyebrow { @apply text-[10px] font-bold uppercase tracking-[0.16em] text-forest; }
+  .page-title { @apply mt-2 text-2xl font-semibold tracking-[-0.025em] sm:text-[2rem]; }
+  .page-intro { @apply mt-2 max-w-3xl text-sm leading-6 text-ink/52; }
+  .pill { @apply rounded-full border border-ink/8 bg-paper px-2.5 py-1 text-[10px] font-semibold text-ink; }
+}
+
+::selection {
+  background: #d8f15a;
+  color: #17201b;
+}
