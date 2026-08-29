@@ -32,7 +32,11 @@ The template editor exposes two customer-facing channels: SMS and WhatsApp. For 
 
 Businesses upload 600–4096 px JPG, PNG, or WebP backgrounds up to 20 MB; 1080 × 1080 px is the recommended authoring size. ReviewOrbit suggests a low-detail text area, but the customer remains responsible for confirming it in the visual editor. The editor stores four normalized corner points so photographed signs can be skewed or angled. The renderer wraps text to the configured line limit, measures it with the selected font, shrinks it when necessary, and perspective-warps the text layer into the selected quadrilateral. Fonts are restricted to the server allowlist and arbitrary font files or paths are never accepted.
 
-## Platform environment
+## Platform credentials
+
+Production super administrators configure Twilio from **Admin → Twilio setup**. The Account SID is stored as an identifier and the Auth Token is encrypted with Laravel's application key. The token is write-only: it is never returned to the browser, included in audit changes, or logged. Saving credentials returns them to draft status; a separate live verification request is required before ReviewOrbit can use them.
+
+Environment values remain supported as a deployment fallback:
 
 Keep these only in `apps/api/.env` or a production secret manager:
 
@@ -45,9 +49,21 @@ TWILIO_INBOUND_WEBHOOK_URL=https://api.example.com/api/v1/webhooks/twilio/inboun
 TRACKING_BASE_URL=https://api.example.com
 ```
 
-The account SID and auth token are platform-level credentials. Per-business subaccount and Messaging Service SIDs, approved sender display values, and channel enablement are configured in **Customer dashboard → Messages**. Tokens are never entered in the browser or stored per tenant.
+The account SID and auth token are platform-level credentials. Per-business subaccount and Messaging Service SIDs, approved sender display values, and channel enablement are configured in **Customer dashboard → Messages**. Tokens are never stored per tenant.
 
 Keep `MESSAGING_PROVIDER=fake` for local development and automated tests. The fake provider records the same delivery lifecycle but performs no network request.
+
+### Trial testing
+
+Trial mode is a temporary exception to the production subaccount architecture:
+
+1. Save the Trial Account SID and Auth Token in **Admin → Twilio setup**, select **Trial testing**, and verify the connection.
+2. Create a Messaging Service in that same Trial account and add its Trial SMS sender.
+3. In the test business's **Messages** screen, use the Trial Account SID in the account field, add the Messaging Service SID and approved sender, then verify the workspace.
+4. Add the tester as a customer, record real SMS consent, and verify that exact phone number in the Twilio Console.
+5. In **Message templates**, select **Send test message**, choose the consented tester, and confirm the Twilio Trial verification.
+
+Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in delivery history, prefixes SMS text with `[ReviewOrbit test]`, and never creates a review-click record. Trial restrictions can still cause Twilio to reject custom content or unverified destinations; the rejection code is shown without exposing credentials.
 
 ## Twilio Console setup per business
 

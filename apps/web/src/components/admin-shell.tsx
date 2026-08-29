@@ -25,6 +25,7 @@ const adminNavigation: NavigationGroup[] = [
     { href: "/admin/health", label: "System health", icon: "health" },
   ] },
   { label: "Configuration", items: [
+    { href: "/admin/twilio", label: "Twilio setup", icon: "messages" },
     { href: "/admin/settings", label: "Platform settings", icon: "settings", badge: "Soon" },
     { href: "/admin/help", label: "Help & documentation", icon: "help" },
   ] },

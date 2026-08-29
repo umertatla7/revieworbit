@@ -9,9 +9,11 @@ use RuntimeException;
 
 class TwilioMessagingProvider implements MessagingProvider
 {
+    public function __construct(private readonly TwilioCredentials $credentials) {}
+
     public function configured(): bool
     {
-        return (bool) (config('services.twilio.account_sid') && config('services.twilio.auth_token'));
+        return $this->credentials->configured();
     }
 
     public function send(MessagingConfiguration $configuration, array $message): array
@@ -35,7 +37,7 @@ class TwilioMessagingProvider implements MessagingProvider
         }
 
         $response = Http::asForm()
-            ->withBasicAuth(config('services.twilio.account_sid'), config('services.twilio.auth_token'))
+            ->withBasicAuth($this->credentials->accountSid(), $this->credentials->authToken())
             ->post("https://api.twilio.com/2010-04-01/Accounts/{$accountSid}/Messages.json", $payload);
 
         if ($response->failed()) {
@@ -50,7 +52,7 @@ class TwilioMessagingProvider implements MessagingProvider
         $this->assertConfigured();
         $accountSid = $configuration->twilio_subaccount_sid;
         $serviceSid = $configuration->twilio_messaging_service_sid;
-        $response = Http::withBasicAuth(config('services.twilio.account_sid'), config('services.twilio.auth_token'))
+        $response = Http::withBasicAuth($this->credentials->accountSid(), $this->credentials->authToken())
             ->get("https://messaging.twilio.com/v1/Services/{$serviceSid}");
 
         if ($response->failed() || $response->json('account_sid') !== $accountSid) {
@@ -58,6 +60,28 @@ class TwilioMessagingProvider implements MessagingProvider
         }
 
         return ['sid' => $serviceSid, 'name' => $response->json('friendly_name')];
+    }
+
+    public function verifyPlatform(): array
+    {
+        if (! $this->credentials->configured(false)) {
+            throw new RuntimeException('Twilio platform credentials are not configured.');
+        }
+
+        $accountSid = $this->credentials->accountSid();
+        $response = Http::withBasicAuth($accountSid, $this->credentials->authToken())
+            ->get("https://api.twilio.com/2010-04-01/Accounts/{$accountSid}.json");
+
+        if ($response->failed() || $response->json('sid') !== $accountSid) {
+            throw new RuntimeException('Twilio rejected the platform credentials.');
+        }
+
+        return [
+            'sid' => $accountSid,
+            'name' => $response->json('friendly_name'),
+            'account_status' => $response->json('status'),
+            'type' => $response->json('type'),
+        ];
     }
 
     private function assertConfigured(): void

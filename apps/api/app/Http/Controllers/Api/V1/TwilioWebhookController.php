@@ -6,6 +6,7 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\MessagingConfiguration;
+use App\Domain\Messaging\Models\TestMessageDelivery;
 use App\Domain\Messaging\Services\TwilioSignatureValidator;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -16,7 +17,8 @@ class TwilioWebhookController extends Controller
     public function status(Request $request, TwilioSignatureValidator $validator): Response
     {
         abort_unless($validator->valid(config('services.twilio.status_callback_url'), $request->all(), $request->header('X-Twilio-Signature')), 403, 'Invalid Twilio signature.');
-        $delivery = MessageDelivery::where('provider_message_sid', $request->input('MessageSid'))->first();
+        $delivery = MessageDelivery::where('provider_message_sid', $request->input('MessageSid'))->first()
+            ?? TestMessageDelivery::where('provider_message_sid', $request->input('MessageSid'))->first();
         if (! $delivery) {
             return response('', 204);
         }

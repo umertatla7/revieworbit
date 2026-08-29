@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Customers\Models\Customer;
 use App\Domain\Media\Models\MediaTemplate;
+use App\Domain\Messaging\Services\TemplateTestMessenger;
 use App\Domain\Templates\Models\MediaAsset;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Templates\Services\TemplateRenderer;
@@ -65,6 +67,30 @@ class TemplateController extends Controller
         ]);
 
         return response()->json(['data' => ['message' => $message, 'estimate' => $renderer->estimate($message), 'variables' => TemplateRenderer::VARIABLES]]);
+    }
+
+    public function sendTest(Request $request, string $template, TemplateTestMessenger $messenger, Auditor $auditor): JsonResponse
+    {
+        $model = $this->scoped($request, $template);
+        $data = $request->validate([
+            'customer_id' => ['required', 'string'],
+            'trial_recipient_verified' => ['sometimes', 'boolean'],
+        ]);
+        $customer = Customer::where('business_id', $model->business_id)->findOrFail($data['customer_id']);
+        $delivery = $messenger->send($model, $customer, $request->user()->id, (bool) ($data['trial_recipient_verified'] ?? false));
+        $auditor->record($request, 'template.test_message_sent', $delivery, [
+            'template_id' => $model->id,
+            'channel' => $delivery->channel,
+            'recipient_last_four' => $delivery->to_last_four,
+            'status' => $delivery->status,
+        ]);
+
+        return response()->json(['data' => [
+            'id' => $delivery->id,
+            'channel' => $delivery->channel,
+            'recipient_last_four' => $delivery->to_last_four,
+            'status' => $delivery->status,
+        ]], 202);
     }
 
     public function upload(Request $request, string $template, Auditor $auditor): JsonResponse

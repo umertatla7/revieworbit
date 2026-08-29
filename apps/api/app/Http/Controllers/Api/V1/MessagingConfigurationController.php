@@ -6,6 +6,7 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\MessagingConfiguration;
+use App\Domain\Messaging\Services\TwilioCredentials;
 use App\Domain\Messaging\Services\TwilioMessagingProvider;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -13,15 +14,18 @@ use Illuminate\Http\Request;
 
 class MessagingConfigurationController extends Controller
 {
-    public function show(Request $request, TwilioMessagingProvider $twilio): JsonResponse
+    public function show(Request $request, TwilioMessagingProvider $twilio, TwilioCredentials $credentials): JsonResponse
     {
         $business = $request->attributes->get('business');
+        $liveConfigured = $twilio->configured();
+        $fakeAllowed = app()->environment('local', 'testing') && config('services.twilio.provider') === 'fake';
 
         return response()->json(['data' => [
             'configuration' => MessagingConfiguration::where('business_id', $business->id)->first(),
             'platform' => [
-                'provider' => config('services.twilio.provider'),
-                'configured' => config('services.twilio.provider') === 'fake' || $twilio->configured(),
+                'provider' => $liveConfigured ? 'twilio' : config('services.twilio.provider'),
+                'configured' => $liveConfigured || $fakeAllowed,
+                'mode' => $credentials->mode(),
                 'recommended_architecture' => 'dedicated_subaccount',
                 'status_callback_url' => config('services.twilio.status_callback_url'),
                 'inbound_webhook_url' => config('services.twilio.inbound_webhook_url'),
@@ -56,10 +60,12 @@ class MessagingConfigurationController extends Controller
         return response()->json(['data' => $configuration]);
     }
 
-    public function verify(Request $request, MessagingProvider $provider, Auditor $auditor): JsonResponse
+    public function verify(Request $request, MessagingProvider $provider, TwilioMessagingProvider $twilio, Auditor $auditor): JsonResponse
     {
         $business = $request->attributes->get('business');
         $configuration = MessagingConfiguration::where('business_id', $business->id)->firstOrFail();
+
+        abort_if(app()->environment('production') && ! $twilio->configured(), 422, 'A super administrator must verify the Twilio platform connection first.');
 
         try {
             $details = $provider->verify($configuration);

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\MessagingConfigurationController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\PlatformBusinessController;
+use App\Http\Controllers\Api\V1\PlatformTwilioController;
 use App\Http\Controllers\Api\V1\PosIntegrationController;
 use App\Http\Controllers\Api\V1\SquareIntegrationController;
 use App\Http\Controllers\Api\V1\TemplateController;
@@ -67,6 +68,12 @@ Route::prefix('api/v1')->group(function (): void {
             Route::post('/businesses/{business}/support-sessions', [PlatformBusinessController::class, 'startSupportSession']);
         });
 
+        Route::prefix('admin/twilio')->middleware('platform.role:super_admin')->group(function (): void {
+            Route::get('/', [PlatformTwilioController::class, 'show']);
+            Route::put('/', [PlatformTwilioController::class, 'update']);
+            Route::post('/verify', [PlatformTwilioController::class, 'verify'])->middleware('throttle:10,1');
+        });
+
         Route::middleware('business')->group(function (): void {
             Route::get('/business', [BusinessController::class, 'show']);
             Route::get('/onboarding', [OnboardingController::class, 'show']);
@@ -93,6 +100,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/templates', [TemplateController::class, 'store']);
                 Route::patch('/templates/{template}', [TemplateController::class, 'update']);
                 Route::post('/templates/{template}/duplicate', [TemplateController::class, 'duplicate']);
+                Route::post('/templates/{template}/test', [TemplateController::class, 'sendTest'])->middleware('throttle:5,1');
                 Route::post('/templates/{template}/media', [TemplateController::class, 'upload']);
                 Route::post('/media-templates', [MediaController::class, 'store']);
                 Route::post('/media-templates/{mediaTemplate}/update', [MediaController::class, 'update']);
