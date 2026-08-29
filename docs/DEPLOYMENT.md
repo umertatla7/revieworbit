@@ -19,3 +19,11 @@ Back up PostgreSQL with encrypted point-in-time recovery and routinely tested re
 Rollback application images independently when migrations are backward-compatible. Schema removals use expand/migrate/contract over multiple releases. If a migration fails, halt rollout, restore the prior application, and apply a reviewed forward repair; do not mutate an already-applied shared migration.
 
 Health endpoints distinguish liveness from readiness (database, Redis, and storage where appropriate) and never reveal secrets or internal exception details.
+
+## Single-VPS staging deployment
+
+The staging VPS uses `docker-compose.production.yml` with Caddy terminating TLS for `app.revieworbit.tech` and `api.revieworbit.tech`. PostgreSQL, Redis, pgAdmin, and Mailpit are never published on a public interface. PostgreSQL is bound to `127.0.0.1:5432`; pgAdmin is bound to `127.0.0.1:5050`; Mailpit is bound to `127.0.0.1:8025`. Administrators reach these services only through an SSH tunnel.
+
+Copy `.env.production.example` to `.env.production`, generate unique values for every `CHANGE_ME`, and keep `.env.production` mode `600`. All Compose commands must include both `--env-file .env.production` and `-f docker-compose.production.yml`. Messaging stays on the fake provider and Square stays in sandbox until credentials, consent controls, callbacks, and provider configuration have been reviewed.
+
+Deploy from `/opt/revieworbit` with a fast-forward-only Git pull, build the immutable images, run `php artisan migrate --force` as a one-off container, then start the services. Never run `db:seed` unless a staging password has been deliberately supplied. Production-scale deployment must move PostgreSQL, Redis, and private media to managed services and add encrypted off-server backups before customer traffic.
