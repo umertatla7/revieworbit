@@ -57,3 +57,6 @@ jobs:
           -v "$PWD/infrastructure/docker/Caddyfile:/etc/caddy/Caddyfile:ro"
           caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
       - run: docker compose --env-file .env.production -f docker-compose.production.yml build api nginx web
+      - run: docker compose --env-file .env.production -f docker-compose.production.yml up --wait postgres redis
+      - if: always()
+        run: docker compose --env-file .env.production -f docker-compose.production.yml down --volumes
