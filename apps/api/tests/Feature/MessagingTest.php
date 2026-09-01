@@ -78,11 +78,49 @@ class MessagingTest extends TestCase
         $this->assertSame('0123', $delivery->to_last_four);
         $this->assertDatabaseCount('message_deliveries', 1);
         $this->assertDatabaseCount('review_links', 1);
+        $this->assertSame('automation', $delivery->delivery_type);
+        $this->assertGreaterThan(0, $delivery->billable_credits);
+        $this->assertStringContainsString('https://api.revieworbit.test/r/', $delivery->body_snapshot);
         $this->assertArrayNotHasKey('phone_e164', $delivery->getAttributes());
 
         $sameDelivery = app(MessagingManager::class)->send($dispatch);
         $this->assertSame($delivery->id, $sameDelivery->id);
         $this->assertDatabaseCount('message_deliveries', 1);
+    }
+
+    public function test_follow_up_is_cancelled_when_an_earlier_review_link_was_clicked(): void
+    {
+        [, $business, , , $template, $rule, $primary] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $delivery = app(MessagingManager::class)->send($primary);
+        $delivery->reviewLink->update(['first_clicked_at' => now(), 'last_clicked_at' => now(), 'click_count' => 1]);
+        $followUp = $rule->followUps()->create(['message_template_id' => $template->id, 'sequence_number' => 1, 'delay_minutes' => 60, 'cancel_after_click' => true]);
+        $dispatch = AutomationDispatch::create([
+            'business_id' => $business->id, 'visit_id' => $primary->visit_id, 'automation_rule_id' => $rule->id,
+            'sequence_number' => 1, 'decision' => 'scheduled', 'scheduled_for' => now()->subSecond(),
+            'decision_context' => ['follow_up_id' => $followUp->id, 'cancel_after_click' => true],
+        ]);
+
+        (new SendAutomationDispatch($dispatch->id))->handle(app(MessagingManager::class));
+
+        $this->assertSame('cancelled', $dispatch->fresh()->decision);
+        $this->assertSame('review_link_clicked', $dispatch->fresh()->reason_code);
+        $this->assertDatabaseMissing('message_deliveries', ['automation_dispatch_id' => $dispatch->id]);
+    }
+
+    public function test_review_link_activity_and_resend_are_tenant_scoped(): void
+    {
+        [$ownerA, $businessA, , , , , $dispatchA] = $this->fixture('Business A');
+        [$ownerB, $businessB, , , , , $dispatchB] = $this->fixture('Business B');
+        $this->configuration($businessA, sms: true);
+        $this->configuration($businessB, sms: true);
+        $linkA = app(MessagingManager::class)->send($dispatchA)->reviewLink;
+        $linkB = app(MessagingManager::class)->send($dispatchB)->reviewLink;
+
+        $this->actingAs($ownerA)->getJson('/api/v1/review-links', ['X-Business-ID' => $businessA->id])
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $linkA->id);
+        $this->postJson('/api/v1/review-links/'.$linkB->id.'/resend', ['body' => 'Please share honest feedback {{review_link}}'], ['X-Business-ID' => $businessA->id])
+            ->assertNotFound();
     }
 
     public function test_mms_generates_recipient_media_and_links_it_to_the_delivery(): void

@@ -7,25 +7,31 @@ use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Automations\Models\AutomationRule;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Models\Location;
+use App\Domain\Tenancy\Services\PlanEntitlements;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AutomationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
-        $rules = AutomationRule::where('business_id', $businessId)->with(['location', 'messageTemplate', 'followUps'])->latest()->get();
+        $rules = AutomationRule::where('business_id', $businessId)->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination'])->latest()->get();
 
         return response()->json(['data' => $rules]);
     }
 
-    public function store(Request $request, Auditor $auditor): JsonResponse
+    public function store(Request $request, Auditor $auditor, PlanEntitlements $entitlements): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
+        $limits = $entitlements->for($request->attributes->get('business'));
+        abort_unless($limits['can_add_automation'], 422, 'Your current plan has reached its automation limit.');
         $data = $this->validated($request);
+        $this->validateStepLimit($data, $limits['automation_step_limit']);
         $this->validateTenantReferences($businessId, $data);
         $followUps = $data['follow_ups'] ?? [];
         unset($data['follow_ups']);
@@ -39,14 +45,25 @@ class AutomationController extends Controller
         return response()->json(['data' => $rule->load(['location', 'messageTemplate', 'followUps'])], 201);
     }
 
-    public function update(Request $request, string $automation, Auditor $auditor): JsonResponse
+    public function update(Request $request, string $automation, Auditor $auditor, PlanEntitlements $entitlements): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
         $rule = AutomationRule::where('business_id', $businessId)->findOrFail($automation);
         $data = $this->validated($request, true);
+        $this->validateStepLimit($data, $entitlements->for($request->attributes->get('business'))['automation_step_limit']);
         $this->validateTenantReferences($businessId, $data);
+        $followUps = $data['follow_ups'] ?? null;
         unset($data['follow_ups']);
-        $rule->update($data);
+        DB::transaction(function () use ($rule, $data, $followUps, $businessId): void {
+            $rule->update($data);
+            if (is_array($followUps)) {
+                $rule->followUps()->delete();
+                foreach ($followUps as $index => $followUp) {
+                    MessageTemplate::where('business_id', $businessId)->findOrFail($followUp['message_template_id']);
+                    $rule->followUps()->create([...$followUp, 'sequence_number' => $index + 1]);
+                }
+            }
+        });
         $auditor->record($request, 'automation.updated', $rule, array_keys($data));
 
         return response()->json(['data' => $rule->fresh(['location', 'messageTemplate', 'followUps'])]);
@@ -87,10 +104,26 @@ class AutomationController extends Controller
     private function validateTenantReferences(string $businessId, array $data): void
     {
         if (isset($data['message_template_id'])) {
-            MessageTemplate::where('business_id', $businessId)->findOrFail($data['message_template_id']);
+            $template = MessageTemplate::where('business_id', $businessId)->findOrFail($data['message_template_id']);
+            if (! empty($data['location_id']) && $template->location_id !== $data['location_id']) {
+                throw ValidationException::withMessages(['message_template_id' => ['Select a template configured for the automation location.']]);
+            }
         }
         if (! empty($data['location_id'])) {
             Location::where('business_id', $businessId)->findOrFail($data['location_id']);
+        }
+        foreach ($data['follow_ups'] ?? [] as $followUp) {
+            $template = MessageTemplate::where('business_id', $businessId)->findOrFail($followUp['message_template_id']);
+            if (! empty($data['location_id']) && $template->location_id !== $data['location_id']) {
+                throw ValidationException::withMessages(['follow_ups' => ['Every follow-up template must belong to the automation location.']]);
+            }
+        }
+    }
+
+    private function validateStepLimit(array $data, int $limit): void
+    {
+        if (1 + count($data['follow_ups'] ?? []) > $limit) {
+            throw ValidationException::withMessages(['follow_ups' => ["Your plan allows {$limit} message step(s) per automation."]]);
         }
     }
 }

@@ -15,7 +15,7 @@ const customerNavigation: NavigationGroup[] = [
     { href: "/dashboard/customers", label: "Customers", icon: "users" },
     { href: "/dashboard/visits", label: "Visits", icon: "visits" },
     { href: "/dashboard/messages", label: "Messages", icon: "messages" },
-    { href: "/dashboard/review-links", label: "Review links", icon: "links", badge: "Soon" },
+    { href: "/dashboard/review-links", label: "Review links", icon: "links" },
   ] },
   { label: "Automation", items: [
     { href: "/dashboard/templates", label: "Message templates", icon: "templates" },

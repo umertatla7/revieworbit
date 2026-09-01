@@ -9,6 +9,7 @@ type Business = {
   name: string;
   slug: string;
   status: string;
+  plan_code: string;
   default_timezone: string;
   default_country: string;
   onboarding_status: string;
@@ -258,19 +259,14 @@ export default function AdminPage() {
                   {business.pos_integrations_count} connections
                 </p>
               </div>
-              <select
-                aria-label={`Status for ${business.name}`}
-                className="rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs"
-                value={business.status}
-                disabled={busyId === business.id}
-                onChange={(event) =>
-                  updateBusiness(business, { status: event.target.value })
-                }
-              >
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
-                <option value="inactive">Inactive</option>
-              </select>
+              <div className="space-y-2">
+                <select aria-label={`Plan for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs capitalize" value={business.plan_code} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { plan_code: event.target.value })}>
+                  <option value="basic">Basic plan</option><option value="growth">Growth plan</option><option value="pro">Pro plan</option>
+                </select>
+                <select aria-label={`Status for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs" value={business.status} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { status: event.target.value })}>
+                  <option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option>
+                </select>
+              </div>
               <div className="flex justify-end gap-2">
               <button
                 disabled

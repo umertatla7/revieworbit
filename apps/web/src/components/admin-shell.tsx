@@ -21,7 +21,7 @@ const adminNavigation: NavigationGroup[] = [
   ] },
   { label: "Insights", items: [
     { href: "/admin/analytics", label: "Platform analytics", icon: "analytics", badge: "Soon" },
-    { href: "/admin/billing", label: "Plans & billing", icon: "billing", badge: "Soon" },
+    { href: "/admin/billing", label: "Plans & billing", icon: "billing" },
     { href: "/admin/health", label: "System health", icon: "health" },
   ] },
   { label: "Configuration", items: [

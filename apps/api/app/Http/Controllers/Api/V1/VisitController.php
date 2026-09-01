@@ -18,7 +18,7 @@ class VisitController extends Controller
     public function index(Request $request): JsonResponse
     {
         $visits = Visit::where('business_id', $request->attributes->get('business')->id)
-            ->with(['customer', 'location', 'dispatches.rule'])
+            ->with(['customer', 'location', 'dispatches.rule', 'dispatches.delivery.template', 'dispatches.delivery.reviewLink'])
             ->latest('completed_at')
             ->paginate(50);
 

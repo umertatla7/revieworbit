@@ -10,8 +10,10 @@ use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\MessagingConfigurationController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\PlatformBusinessController;
+use App\Http\Controllers\Api\V1\PlatformPlanController;
 use App\Http\Controllers\Api\V1\PlatformTwilioController;
 use App\Http\Controllers\Api\V1\PosIntegrationController;
+use App\Http\Controllers\Api\V1\ReviewLinkActivityController;
 use App\Http\Controllers\Api\V1\SquareIntegrationController;
 use App\Http\Controllers\Api\V1\TemplateController;
 use App\Http\Controllers\Api\V1\TwilioWebhookController;
@@ -66,7 +68,11 @@ Route::prefix('api/v1')->group(function (): void {
             Route::get('/businesses/{business}', [PlatformBusinessController::class, 'show']);
             Route::patch('/businesses/{business}', [PlatformBusinessController::class, 'update']);
             Route::post('/businesses/{business}/support-sessions', [PlatformBusinessController::class, 'startSupportSession']);
+            Route::get('/plans', [PlatformPlanController::class, 'index']);
+            Route::get('/usage', [PlatformPlanController::class, 'usage']);
         });
+
+        Route::patch('/admin/plans/{plan}', [PlatformPlanController::class, 'update'])->middleware('platform.role:super_admin');
 
         Route::prefix('admin/twilio')->middleware('platform.role:super_admin')->group(function (): void {
             Route::get('/', [PlatformTwilioController::class, 'show']);
@@ -110,6 +116,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/automations', [AutomationController::class, 'store']);
                 Route::patch('/automations/{automation}', [AutomationController::class, 'update']);
                 Route::post('/visits', [VisitController::class, 'store']);
+                Route::post('/review-links/{reviewLink}/resend', [ReviewLinkActivityController::class, 'resend'])->middleware('throttle:10,1');
                 Route::post('/pos-integrations', [PosIntegrationController::class, 'store']);
                 Route::patch('/pos-integrations/{integration}', [PosIntegrationController::class, 'update']);
                 Route::post('/pos-integrations/square/authorize', [SquareIntegrationController::class, 'authorize']);
@@ -132,6 +139,7 @@ Route::prefix('api/v1')->group(function (): void {
             Route::get('/automations', [AutomationController::class, 'index']);
             Route::get('/automation-history', [AutomationController::class, 'history']);
             Route::get('/visits', [VisitController::class, 'index']);
+            Route::get('/review-links', [ReviewLinkActivityController::class, 'index']);
         });
     });
 });

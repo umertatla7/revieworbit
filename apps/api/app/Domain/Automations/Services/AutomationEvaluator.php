@@ -35,9 +35,14 @@ class AutomationEvaluator
         );
 
         foreach ($rule->followUps()->where('status', 'active')->get() as $followUp) {
+            $followUpCandidate = CarbonImmutable::instance($visit->completed_at)->addMinutes($followUp->delay_minutes);
+            if ($followUpCandidate->lessThan($now)) {
+                $followUpCandidate = $now;
+            }
+            $followUpScheduledFor = $this->outsideQuietHours($followUpCandidate, $visit->location->timezone, $rule->quiet_hours_start, $rule->quiet_hours_end);
             AutomationDispatch::firstOrCreate(
                 ['visit_id' => $visit->id, 'automation_rule_id' => $rule->id, 'sequence_number' => $followUp->sequence_number],
-                ['business_id' => $visit->business_id, 'decision' => 'scheduled', 'scheduled_for' => $scheduledFor->addMinutes($followUp->delay_minutes), 'decision_context' => ['follow_up_id' => $followUp->id, 'cancel_after_click' => $followUp->cancel_after_click]]
+                ['business_id' => $visit->business_id, 'decision' => 'scheduled', 'scheduled_for' => $followUpScheduledFor, 'decision_context' => ['follow_up_id' => $followUp->id, 'cancel_after_click' => $followUp->cancel_after_click]]
             );
         }
 

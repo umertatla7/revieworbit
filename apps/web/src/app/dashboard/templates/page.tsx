@@ -23,7 +23,11 @@ type Template = {
   id: string; name: string; body: string; channel: string; status: string;
   include_media: boolean; provider_template_sid?: string;
   media_template_id?: string; media_template?: MediaTemplate;
+  location_id: string; review_destination_id: string;
+  location?: { id: string; name: string }; review_destination?: { id: string; provider: string; url: string };
 };
+type Location = { id: string; name: string; review_destinations: { id: string; provider: string; url: string; status: string }[] };
+type Business = { locations: Location[]; entitlements: { plan_name: string; template_limit: number; templates_used: number; can_add_template: boolean } };
 type Preview = { message: string; estimate: { characters: number; encoding: string; segments: number } };
 type Customer = { id: string; first_name: string; last_name?: string; phone_e164?: string; consents: { channel: string; status: string }[]; suppressions: { channel: string }[] };
 type MessagingPlatform = { mode?: "trial" | "production"; configured: boolean; provider: string };
@@ -46,6 +50,9 @@ export default function TemplatesPage() {
   const [testTemplate, setTestTemplate] = useState<Template | null>(null);
   const [testMessage, setTestMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [locationId, setLocationId] = useState("");
+  const [destinationId, setDestinationId] = useState("");
 
   async function load() {
     const [templateResult, mediaResult] = await Promise.all([
@@ -63,13 +70,15 @@ export default function TemplatesPage() {
       api<{ data: Preview }>("/api/v1/templates/preview", { method: "POST", body: JSON.stringify({ body: defaultBody }) }, true),
       api<{ data: Customer[] }>("/api/v1/customers", {}, true),
       api<{ data: { configuration: MessagingConfiguration | null; platform: MessagingPlatform } }>("/api/v1/messaging-configuration", {}, true),
-    ]).then(([templateResult, mediaResult, previewResult, customerResult, messagingResult]) => {
+      api<{ data: Business }>("/api/v1/business", {}, true),
+    ]).then(([templateResult, mediaResult, previewResult, customerResult, messagingResult, businessResult]) => {
       setTemplates(templateResult.data);
       setMedia(mediaResult.data);
       setPreview(previewResult.data);
       setCustomers(customerResult.data);
       setConfiguration(messagingResult.data.configuration);
       setPlatform(messagingResult.data.platform);
+      setBusiness(businessResult.data);
     }).catch((error: Error) => setMessage(error.message));
   }, []);
 
@@ -93,6 +102,8 @@ export default function TemplatesPage() {
           include_media: channel === "sms" && attachMedia,
           provider_template_sid: formData.get("provider_template_sid") || null,
           status: formData.get("status"),
+          location_id: locationId,
+          review_destination_id: destinationId,
         }),
       }, true);
       setMessage("Template saved."); await load();
@@ -136,6 +147,7 @@ export default function TemplatesPage() {
             <option value="whatsapp">WhatsApp</option>
           </select>
         </label>
+        <div className="grid gap-4 sm:grid-cols-2"><label className="label">Location<select className="field" required value={locationId} onChange={(event) => { setLocationId(event.target.value); setDestinationId(""); }}><option value="" disabled>Select location</option>{business?.locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label className="label">Review link<select className="field" required value={destinationId} onChange={(event) => setDestinationId(event.target.value)}><option value="" disabled>Select review destination</option>{business?.locations.find((location) => location.id === locationId)?.review_destinations.filter((destination) => destination.status === "active").map((destination) => <option key={destination.id} value={destination.id}>{destination.provider[0].toUpperCase() + destination.provider.slice(1)}</option>)}</select></label></div>
         {channel === "sms" && <div className="rounded-xl border border-ink/10 bg-paper p-4">
           <label className="flex cursor-pointer items-start gap-3 text-sm">
             <input className="mt-1 accent-[#174d3b]" type="checkbox" checked={attachMedia} onChange={(event) => setAttachMedia(event.target.checked)} />
@@ -160,7 +172,8 @@ export default function TemplatesPage() {
         <div className="flex flex-wrap gap-2">{["customer_first_name", "business_name", "location_name", "review_link"].map((variable) => <code className="pill" key={variable}>{`{{${variable}}}`}</code>)}</div>
         <label className="label">Status<select name="status" className="field" defaultValue="draft"><option value="draft">Draft</option><option value="active">Active</option></select></label>
         {message && <p role="status" className="rounded-lg bg-paper px-3 py-2 text-sm text-forest">{message}</p>}
-        <button type="submit" className="button-primary">Save template</button>
+        <button type="submit" className="button-primary" disabled={business ? !business.entitlements.can_add_template : false}>Save template</button>
+        {business && <p className="text-xs text-ink/45">{business.entitlements.plan_name}: {business.entitlements.templates_used} of {business.entitlements.template_limit} templates used.</p>}
       </form>
 
       <div className="space-y-6">
@@ -182,6 +195,7 @@ export default function TemplatesPage() {
             <div className="flex justify-between gap-3"><p className="font-semibold">{template.name}</p><div className="flex gap-2"><span className="pill uppercase">{template.channel === "mms" || template.include_media ? "SMS + image" : template.channel}</span><span className="pill">{template.status}</span></div></div>
             <p className="mt-2 line-clamp-2 text-sm text-ink/55">{template.body}</p>
             {template.media_template && <p className="mt-3 rounded-lg bg-paper px-3 py-2 text-xs font-semibold text-forest">Personalized media: {template.media_template.name}</p>}
+            <p className="mt-2 text-xs text-ink/45">{template.location?.name ?? "Location not selected"} · {template.review_destination?.provider ?? "Review link not selected"}</p>
             <button className="mt-3 rounded-lg border border-forest/20 px-3 py-2 text-xs font-semibold text-forest" onClick={() => { setTestMessage(""); setTestTemplate(template); }}>Send test message</button>
           </article>) : <p className="text-sm text-ink/55">No templates saved.</p>}
         </div></section>

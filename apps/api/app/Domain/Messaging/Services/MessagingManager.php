@@ -21,6 +21,7 @@ class MessagingManager
         private readonly MessagingProvider $provider,
         private readonly TemplateRenderer $renderer,
         private readonly PersonalizedMediaRenderer $mediaRenderer,
+        private readonly MessageCostEstimator $costEstimator,
     ) {}
 
     public function send(AutomationDispatch $dispatch): MessageDelivery
@@ -32,7 +33,7 @@ class MessagingManager
                 return $existing;
             }
 
-            $dispatch->loadMissing(['visit.business.messagingConfiguration', 'visit.customer.consents', 'visit.customer.suppressions', 'visit.location', 'rule.messageTemplate', 'rule.followUps.messageTemplate']);
+            $dispatch->loadMissing(['visit.business.messagingConfiguration', 'visit.customer.consents', 'visit.customer.suppressions', 'visit.location.reviewDestinations', 'rule.messageTemplate.reviewDestination', 'rule.followUps.messageTemplate.reviewDestination']);
             abort_unless($dispatch->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now()), 422, 'This message is not due.');
             $visit = $dispatch->visit;
             $customer = $visit->customer ?? throw new RuntimeException('The customer is missing.');
@@ -45,16 +46,22 @@ class MessagingManager
             abort_unless($consentChannel === 'sms' ? $configuration->sms_enabled : $configuration->whatsapp_enabled, 422, strtoupper($channel).' is not enabled.');
             abort_unless($this->hasConsent($customer, $consentChannel), 422, 'Valid '.$consentChannel.' consent is required.');
             abort_unless(! $this->suppressed($customer, $consentChannel), 422, 'The customer is suppressed for '.$consentChannel.'.');
-            abort_unless($visit->location->google_review_url, 422, 'The location has no Google review URL.');
+            $destination = $template->reviewDestination ?? $visit->location->reviewDestinations->firstWhere('is_primary', true) ?? $visit->location->reviewDestinations->first();
+            if ($destination && $destination->location_id !== $visit->location_id) {
+                $destination = $visit->location->reviewDestinations->firstWhere('is_primary', true) ?? $visit->location->reviewDestinations->first();
+            }
+            $destinationUrl = $destination?->url ?? $visit->location->google_review_url;
+            abort_unless($destinationUrl && (! $destination || ($destination->business_id === $visit->business_id && $destination->location_id === $visit->location_id && $destination->status === 'active')), 422, 'The template review link must belong to this visit location and remain active.');
 
             $plainToken = Str::random(64);
             $link = ReviewLink::create([
                 'business_id' => $visit->business_id,
                 'location_id' => $visit->location_id,
+                'review_destination_id' => $destination?->id,
                 'customer_id' => $customer->id,
                 'visit_id' => $visit->id,
                 'token_hash' => hash('sha256', $plainToken),
-                'destination_url' => $visit->location->google_review_url,
+                'destination_url' => $destinationUrl,
                 'expires_at' => now()->addYear(),
             ]);
             $reviewUrl = rtrim(config('services.twilio.tracking_base_url'), '/').'/r/'.$plainToken;
@@ -68,6 +75,8 @@ class MessagingManager
                 'visit_date' => $visit->completed_at->setTimezone($visit->location->timezone)->format('F j, Y'),
             ];
             $body = $this->renderer->render($template->body, $values);
+            $cost = $this->costEstimator->estimate($visit->business, $channel, $body, (bool) $template->include_media);
+            $this->costEstimator->assertAvailable($visit->business, $cost['billable_credits']);
             if ($channel === 'whatsapp' && ! $template->provider_template_sid) {
                 throw new RuntimeException('An approved Twilio Content Template SID is required for WhatsApp.');
             }
@@ -79,6 +88,9 @@ class MessagingManager
                 $plainMediaToken = Str::random(64);
                 $generatedMedia = GeneratedMedia::create([
                     'business_id' => $visit->business_id,
+                    'location_id' => $visit->location_id,
+                    'visit_id' => $visit->id,
+                    'delivery_type' => 'automation',
                     'customer_id' => $customer->id,
                     'media_template_id' => $template->media_template_id,
                     'disk' => $template->mediaTemplate->disk,
@@ -99,6 +111,8 @@ class MessagingManager
                     'generated_media_id' => $generatedMedia?->id,
                     'provider' => 'twilio',
                     'channel' => $channel,
+                    'body_snapshot' => $body,
+                    ...$cost,
                     'to_hash' => hash('sha256', $customer->phone_e164),
                     'to_last_four' => substr($customer->phone_e164, -4),
                     'status' => 'pending',

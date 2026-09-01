@@ -9,6 +9,7 @@ use App\Domain\Media\Models\GeneratedMedia;
 use App\Domain\Media\Models\MediaTemplate;
 use App\Domain\Media\Services\PersonalizedMediaRenderer;
 use App\Domain\Media\Services\SafeAreaDetector;
+use App\Domain\Tenancy\Services\PlanEntitlements;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class MediaController extends Controller
         return response()->json(['data' => $templates]);
     }
 
-    public function store(Request $request, Auditor $auditor, SafeAreaDetector $detector): JsonResponse
+    public function store(Request $request, Auditor $auditor, SafeAreaDetector $detector, PlanEntitlements $entitlements): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
         $data = $request->validate([
@@ -57,6 +58,7 @@ class MediaController extends Controller
             'bottom_left_x' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'bottom_left_y' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
+        abort_unless($entitlements->for($request->attributes->get('business'))['can_add_media_template'], 422, 'Your current plan has reached its personalized media limit.');
         $file = $request->file('background');
         if (($data['placement_mode'] ?? 'auto') === 'manual') {
             $this->validateArea($data);

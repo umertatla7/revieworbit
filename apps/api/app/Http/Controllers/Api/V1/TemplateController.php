@@ -9,6 +9,9 @@ use App\Domain\Messaging\Services\TemplateTestMessenger;
 use App\Domain\Templates\Models\MediaAsset;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Templates\Services\TemplateRenderer;
+use App\Domain\Tenancy\Models\Location;
+use App\Domain\Tenancy\Models\LocationReviewDestination;
+use App\Domain\Tenancy\Services\PlanEntitlements;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,15 +24,16 @@ class TemplateController extends Controller
     public function index(Request $request): JsonResponse
     {
         $templates = MessageTemplate::where('business_id', $request->attributes->get('business')->id)
-            ->with(['mediaAssets', 'mediaTemplate'])
+            ->with(['mediaAssets', 'mediaTemplate', 'location', 'reviewDestination'])
             ->latest()
             ->get();
 
         return response()->json(['data' => $templates]);
     }
 
-    public function store(Request $request, TemplateRenderer $renderer, Auditor $auditor): JsonResponse
+    public function store(Request $request, TemplateRenderer $renderer, Auditor $auditor, PlanEntitlements $entitlements): JsonResponse
     {
+        abort_unless($entitlements->for($request->attributes->get('business'))['can_add_template'], 422, 'Your current plan has reached its message template limit.');
         $data = $this->validated($request);
         $renderer->validate($data['body']);
         $this->validateMediaTemplate($request, $data);
@@ -135,6 +139,8 @@ class TemplateController extends Controller
             'provider_template_sid' => ['nullable', 'string', 'regex:/^HX[a-fA-F0-9]{32}$/'],
             'status' => ['sometimes', Rule::in(['draft', 'active', 'archived'])],
             'include_media' => ['sometimes', 'boolean'],
+            'location_id' => ['nullable', 'string'],
+            'review_destination_id' => ['nullable', 'string'],
         ]);
     }
 
@@ -152,8 +158,17 @@ class TemplateController extends Controller
 
     private function validateMediaTemplate(Request $request, array $data, ?MessageTemplate $existing = null): void
     {
+        $businessId = $request->attributes->get('business')->id;
+        $locationId = $data['location_id'] ?? $existing?->location_id;
+        $destinationId = $data['review_destination_id'] ?? $existing?->review_destination_id;
+        if ($locationId) {
+            Location::where('business_id', $businessId)->findOrFail($locationId);
+        }
+        if ($destinationId) {
+            LocationReviewDestination::where('business_id', $businessId)->where('location_id', $locationId)->where('status', 'active')->findOrFail($destinationId);
+        }
         if (! empty($data['media_template_id'])) {
-            MediaTemplate::where('business_id', $request->attributes->get('business')->id)->findOrFail($data['media_template_id']);
+            MediaTemplate::where('business_id', $businessId)->findOrFail($data['media_template_id']);
         }
         $channel = $data['channel'] ?? $existing?->channel;
         $status = $data['status'] ?? $existing?->status;
