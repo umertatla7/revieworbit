@@ -158,6 +158,17 @@ class BusinessController extends Controller
                 throw ValidationException::withMessages(['review_destinations' => [ucfirst($destination['provider']).' review links require a plan upgrade.']]);
             }
         }
+        if (isset($data['review_destinations'])) {
+            $entitlementData = $entitlements->for($business);
+            $existingOutsideLocation = $business->locations()
+                ->when($partial, fn ($query) => $query->where('id', '!=', $request->route('location')))
+                ->withCount(['reviewDestinations' => fn ($query) => $query->where('status', 'active')])
+                ->get()
+                ->sum('review_destinations_count');
+            if ($existingOutsideLocation + count($data['review_destinations']) > $entitlementData['review_destination_limit']) {
+                throw ValidationException::withMessages(['review_destinations' => ['Your current plan has reached its review-link limit. Upgrade your plan or remove another review destination.']]);
+            }
+        }
 
         return $data;
     }

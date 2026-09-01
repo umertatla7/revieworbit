@@ -10,7 +10,7 @@ describe("platform admin customer directory", () => {
   afterEach(cleanup);
   beforeEach(() => {
     apiMock.mockResolvedValue({ data: [{
-      id: "business-1", name: "AL Barber Shop", slug: "al-barber-shop", status: "active",
+      id: "business-1", name: "AL Barber Shop", slug: "al-barber-shop", status: "active", plan_code: "basic",
       default_timezone: "America/New_York", default_country: "US", onboarding_status: "completed",
       onboarding_step: 10, operation_mode: "generic", locations_count: 1, customers_count: 12,
       pos_integrations_count: 1, owners: [{ name: "Owner", email: "owner@albarbershop.test" }],
@@ -22,6 +22,7 @@ describe("platform admin customer directory", () => {
     expect(screen.getByRole("heading", { name: "Customer accounts" })).toBeInTheDocument();
     expect(await screen.findByText("AL Barber Shop")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Details" })).toHaveAttribute("href", "/admin/customers/business-1");
     expect(screen.getByText("owner@albarbershop.test · America/New_York")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     expect(screen.getByRole("dialog", { name: "Manage AL Barber Shop" })).toBeInTheDocument();

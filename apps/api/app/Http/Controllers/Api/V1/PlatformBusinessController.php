@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Messaging\Models\MessageDelivery;
+use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Tenancy\Models\AdminSupportSession;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Services\BusinessProvisioner;
+use App\Domain\Tenancy\Services\PlanEntitlements;
+use App\Domain\Visits\Models\Visit;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,13 +36,17 @@ class PlatformBusinessController extends Controller
         return response()->json(['data' => $query->limit(100)->get()->map(fn (Business $business): array => $this->payload($business))]);
     }
 
-    public function show(string $business): JsonResponse
+    public function show(string $business, PlanEntitlements $entitlements): JsonResponse
     {
         $model = Business::withCount(['locations', 'customers', 'posIntegrations'])
             ->with(['locations', 'posIntegrations', 'memberships.user:id,name,email'])
             ->findOrFail($business);
 
-        return response()->json(['data' => $this->payload($model, true)]);
+        return response()->json(['data' => [
+            ...$this->payload($model, true),
+            'entitlements' => $entitlements->for($model),
+            'analytics' => $this->analytics($model),
+        ]]);
     }
 
     public function store(Request $request, Auditor $auditor, BusinessProvisioner $provisioner): JsonResponse
@@ -178,5 +186,72 @@ class PlatformBusinessController extends Controller
         }
 
         return $data;
+    }
+
+    private function analytics(Business $business): array
+    {
+        $monthStart = now()->startOfMonth();
+        $deliveries = MessageDelivery::query()->where('business_id', $business->id);
+        $monthly = (clone $deliveries)->where('created_at', '>=', $monthStart);
+        $failedStatuses = ['failed', 'undelivered'];
+        $recentDeliveries = (clone $deliveries)->with(['customer:id,first_name,last_name', 'template:id,name'])
+            ->latest()->limit(20)->get();
+        $recentVisits = Visit::query()->where('business_id', $business->id)
+            ->with(['customer:id,first_name,last_name', 'location:id,name'])
+            ->latest('completed_at')->limit(20)->get();
+        $activity = (clone $deliveries)->where('created_at', '>=', now()->subDays(29)->startOfDay())
+            ->get(['created_at', 'status', 'estimated_cost_minor'])
+            ->groupBy(fn (MessageDelivery $delivery): string => $delivery->created_at->toDateString())
+            ->map(fn ($day, string $date): array => [
+                'date' => $date,
+                'messages' => $day->count(),
+                'delivered' => $day->where('status', 'delivered')->count(),
+                'estimated_cost_minor' => (int) $day->sum('estimated_cost_minor'),
+            ])->values();
+
+        return [
+            'period' => ['from' => $monthStart, 'to' => now()],
+            'summary' => [
+                'messages_this_month' => (clone $monthly)->count(),
+                'messages_all_time' => (clone $deliveries)->count(),
+                'delivered_this_month' => (clone $monthly)->where('status', 'delivered')->count(),
+                'failed_this_month' => (clone $monthly)->whereIn('status', $failedStatuses)->count(),
+                'credits_used_this_month' => (int) (clone $monthly)->sum('billable_credits'),
+                'estimated_cost_minor_this_month' => (int) (clone $monthly)->sum('estimated_cost_minor'),
+                'provider_cost_minor_this_month' => (int) (clone $monthly)->sum('provider_cost_minor'),
+                'visits_this_month' => Visit::where('business_id', $business->id)->where('completed_at', '>=', $monthStart)->count(),
+                'visits_all_time' => Visit::where('business_id', $business->id)->count(),
+                'review_link_clicks' => (int) ReviewLink::where('business_id', $business->id)->sum('click_count'),
+            ],
+            'by_channel' => (clone $monthly)->get(['channel'])->countBy('channel')->map(fn (int $count, string $channel): array => ['channel' => $channel, 'messages' => $count])->values(),
+            'by_status' => (clone $monthly)->get(['status'])->countBy('status')->map(fn (int $count, string $status): array => ['status' => $status, 'messages' => $count])->values(),
+            'daily_activity' => $activity,
+            'recent_deliveries' => $recentDeliveries->map(fn (MessageDelivery $delivery): array => [
+                'id' => $delivery->id,
+                'customer_name' => trim(($delivery->customer?->first_name ?? '').' '.($delivery->customer?->last_name ?? '')),
+                'template_name' => $delivery->template?->name,
+                'channel' => $delivery->channel,
+                'delivery_type' => $delivery->delivery_type,
+                'status' => $delivery->status,
+                'recipient_last_four' => $delivery->to_last_four,
+                'billable_credits' => $delivery->billable_credits,
+                'estimated_cost_minor' => $delivery->estimated_cost_minor,
+                'provider_cost_minor' => $delivery->provider_cost_minor,
+                'currency' => $delivery->provider_currency ?? 'USD',
+                'body' => $delivery->body_snapshot,
+                'created_at' => $delivery->created_at,
+            ])->values(),
+            'recent_visits' => $recentVisits->map(fn (Visit $visit): array => [
+                'id' => $visit->id,
+                'customer_name' => trim(($visit->customer?->first_name ?? '').' '.($visit->customer?->last_name ?? '')),
+                'location_name' => $visit->location?->name,
+                'source' => $visit->source,
+                'type' => $visit->type,
+                'status' => $visit->status,
+                'amount' => $visit->amount,
+                'currency' => $visit->currency,
+                'completed_at' => $visit->completed_at,
+            ])->values(),
+        ];
     }
 }

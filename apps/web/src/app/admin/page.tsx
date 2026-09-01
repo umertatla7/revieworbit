@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api, startSupportMode } from "@/lib/api";
 
 type Business = {
@@ -268,13 +269,9 @@ export default function AdminPage() {
                 </select>
               </div>
               <div className="flex justify-end gap-2">
-              <button
-                disabled
-                title="Customer detail screen is planned"
-                className="cursor-not-allowed rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold text-ink/30"
-              >
-                Details soon
-              </button>
+              <Link href={`/admin/customers/${business.id}`} className="rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold text-forest">
+                Details
+              </Link>
                 <button
                   className="button-primary"
                   disabled={

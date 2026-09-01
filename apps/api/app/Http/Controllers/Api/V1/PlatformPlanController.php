@@ -30,6 +30,7 @@ class PlatformPlanController extends Controller
             'automation_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'automation_step_limit' => ['sometimes', 'integer', 'min:1', 'max:10'],
             'media_template_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
+            'review_destination_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'included_message_credits' => ['sometimes', 'integer', 'min:0'],
             'overage_price_minor' => ['sometimes', 'integer', 'min:0'],
             'sms_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],

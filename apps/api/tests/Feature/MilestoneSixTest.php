@@ -148,6 +148,7 @@ class MilestoneSixTest extends TestCase
         Storage::fake('local');
         Queue::fake();
         [$owner, $business, , $customer] = $this->fixture();
+        $business->update(['plan_code' => 'growth']);
         $headers = ['X-Business-ID' => $business->id];
         $response = $this->actingAs($owner)->post('/api/v1/media-templates', [
             'name' => 'Thank you card', 'background' => UploadedFile::fake()->image('background.png', 800, 600),

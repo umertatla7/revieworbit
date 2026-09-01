@@ -7,6 +7,7 @@ use App\Domain\Media\Models\MediaTemplate;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Models\Business;
+use App\Domain\Tenancy\Models\LocationReviewDestination;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 
 class PlanEntitlements
@@ -19,6 +20,7 @@ class PlanEntitlements
         $templates = MessageTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
         $automations = AutomationRule::where('business_id', $business->id)->where('status', '!=', 'disabled')->count();
         $media = MediaTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
+        $reviewDestinations = LocationReviewDestination::where('business_id', $business->id)->where('status', 'active')->count();
         $credits = MessageDelivery::where('business_id', $business->id)->where('created_at', '>=', now()->startOfMonth())->sum('billable_credits');
 
         return [
@@ -38,6 +40,10 @@ class PlanEntitlements
             'media_template_limit' => $plan->media_template_limit,
             'media_templates_used' => $media,
             'can_add_media_template' => $media < $plan->media_template_limit,
+            'review_destination_limit' => $plan->review_destination_limit,
+            'review_destinations_used' => $reviewDestinations,
+            'review_destinations_remaining' => max(0, $plan->review_destination_limit - $reviewDestinations),
+            'can_add_review_destination' => $reviewDestinations < $plan->review_destination_limit,
             'included_message_credits' => $plan->included_message_credits,
             'message_credits_used' => (int) $credits,
             'message_credits_remaining' => max(0, $plan->included_message_credits - $credits),
