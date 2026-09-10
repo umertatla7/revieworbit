@@ -10,7 +10,11 @@ export type NavigationItem = {
   icon: IconName;
   badge?: string;
 };
-export type NavigationGroup = { label: string; items: NavigationItem[] };
+export type NavigationGroup = {
+  label: string;
+  items: NavigationItem[];
+  collapsible?: boolean;
+};
 export type IconName =
   | "home"
   | "businesses"
@@ -55,6 +59,22 @@ export function WorkspaceShell({
 }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState(
+    () =>
+      new Set(
+        groups
+          .filter(
+            (group) =>
+              !group.collapsible ||
+              group.items.some(
+                (item) =>
+                  pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`),
+              ),
+          )
+          .map((group) => group.label),
+      ),
+  );
   const current =
     groups
       .flatMap((group) => group.items)
@@ -95,48 +115,77 @@ export function WorkspaceShell({
           mode === "platform" ? "Platform navigation" : "Customer navigation"
         }
       >
-        {groups.map((group) => (
-          <div className="mb-5" key={group.label}>
-            <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const active =
-                  item.href === pathname ||
-                  (!["/dashboard", "/admin", "/admin/overview"].includes(
-                    item.href,
-                  ) &&
-                    pathname.startsWith(`${item.href}/`));
-                return (
-                  <Link
-                    onClick={() => setMobileOpen(false)}
-                    key={`${group.label}-${item.label}`}
-                    href={item.href}
-                    className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition ${active ? "bg-mint text-ink shadow-[0_4px_18px_rgba(216,241,90,0.16)]" : "text-white/58 hover:bg-white/7 hover:text-white"}`}
+        {groups.map((group) => {
+          const expanded = !group.collapsible || openGroups.has(group.label);
+          return (
+            <div className="mb-5" key={group.label}>
+              {group.collapsible ? (
+                <button
+                  type="button"
+                  aria-label={group.label}
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setOpenGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(group.label)) next.delete(group.label);
+                      else next.add(group.label);
+                      return next;
+                    })
+                  }
+                  className="mb-2 flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/40 transition hover:bg-white/5 hover:text-white/70"
+                >
+                  <span>{group.label}</span>
+                  <span
+                    className={`text-sm transition ${expanded ? "rotate-180" : ""}`}
                   >
-                    <Icon
-                      name={item.icon}
-                      className={
-                        active
-                          ? "text-ink"
-                          : "text-white/38 group-hover:text-white/75"
-                      }
-                    />
-                    <span className="flex-1">{item.label}</span>
-                    {item.badge && (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${active ? "bg-ink/10" : "bg-white/8 text-white/40"}`}
+                    ⌄
+                  </span>
+                </button>
+              ) : (
+                <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-white/30">
+                  {group.label}
+                </p>
+              )}
+              {expanded && (
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const active =
+                      item.href === pathname ||
+                      (!["/dashboard", "/admin", "/admin/overview"].includes(
+                        item.href,
+                      ) &&
+                        pathname.startsWith(`${item.href}/`));
+                    return (
+                      <Link
+                        onClick={() => setMobileOpen(false)}
+                        key={`${group.label}-${item.label}`}
+                        href={item.href}
+                        className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition ${active ? "bg-mint text-ink shadow-[0_4px_18px_rgba(216,241,90,0.16)]" : "text-white/58 hover:bg-white/7 hover:text-white"}`}
                       >
-                        {item.badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
+                        <Icon
+                          name={item.icon}
+                          className={
+                            active
+                              ? "text-ink"
+                              : "text-white/38 group-hover:text-white/75"
+                          }
+                        />
+                        <span className="flex-1">{item.label}</span>
+                        {item.badge && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${active ? "bg-ink/10" : "bg-white/8 text-white/40"}`}
+                          >
+                            {item.badge}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
       <div className="border-t border-white/8 p-4">
         <div className="flex items-center gap-3">
@@ -197,15 +246,17 @@ export function WorkspaceShell({
             </div>
           </div>
           <div className="flex items-center gap-2">
-          <button
-            disabled
-            title="Quick search is planned"
-            className="hidden cursor-not-allowed rounded-lg border border-ink/10 bg-white px-3 py-2 text-xs text-ink/35 sm:flex sm:items-center sm:gap-2"
-          >
-            <span>⌘ K</span>
-            <span>Quick search</span>
-            <span className="rounded bg-paper px-1.5 py-0.5 text-[8px] font-bold uppercase">Soon</span>
-          </button>
+            <button
+              disabled
+              title="Quick search is planned"
+              className="hidden cursor-not-allowed rounded-lg border border-ink/10 bg-white px-3 py-2 text-xs text-ink/35 sm:flex sm:items-center sm:gap-2"
+            >
+              <span>⌘ K</span>
+              <span>Quick search</span>
+              <span className="rounded bg-paper px-1.5 py-0.5 text-[8px] font-bold uppercase">
+                Soon
+              </span>
+            </button>
             <span className="grid size-9 place-items-center rounded-full border border-ink/10 bg-white text-[11px] font-bold">
               {initials(userName)}
             </span>

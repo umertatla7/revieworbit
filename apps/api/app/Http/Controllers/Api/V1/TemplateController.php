@@ -24,6 +24,8 @@ class TemplateController extends Controller
     public function index(Request $request): JsonResponse
     {
         $templates = MessageTemplate::where('business_id', $request->attributes->get('business')->id)
+            ->where('status', '!=', 'archived')
+            ->where('channel', '!=', 'whatsapp')
             ->with(['mediaAssets', 'mediaTemplate', 'location', 'reviewDestination'])
             ->latest()
             ->get();
@@ -154,6 +156,15 @@ class TemplateController extends Controller
         $auditor->record($request, 'template.duplicated', $copy, ['source_template_id' => $model->id]);
 
         return response()->json(['data' => $copy], 201);
+    }
+
+    public function destroy(Request $request, string $template, Auditor $auditor): JsonResponse
+    {
+        $model = $this->scoped($request, $template);
+        $model->update(['status' => 'archived']);
+        $auditor->record($request, 'template.archived', $model, ['name' => $model->name]);
+
+        return response()->json(status: 204);
     }
 
     private function validateMediaTemplate(Request $request, array $data, ?MessageTemplate $existing = null): void

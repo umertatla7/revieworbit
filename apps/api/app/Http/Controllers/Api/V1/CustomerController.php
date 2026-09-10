@@ -19,7 +19,13 @@ class CustomerController extends Controller
         $business = $request->attributes->get('business');
         $customers = Customer::query()
             ->where('business_id', $business->id)
-            ->with(['consents' => fn ($query) => $query->latest('recorded_at'), 'suppressions' => fn ($query) => $query->whereNull('released_at')])
+            ->with([
+                'consents' => fn ($query) => $query->latest('recorded_at'),
+                'suppressions' => fn ($query) => $query->whereNull('released_at'),
+                'visits' => fn ($query) => $query->with('location:id,name')->latest('completed_at')->limit(1),
+                'reviewLinks' => fn ($query) => $query->with(['location:id,name', 'destination:id,provider'])->latest()->limit(1),
+            ])
+            ->withCount(['visits', 'reviewLinks', 'reviewLinks as clicked_review_links_count' => fn ($query) => $query->whereNotNull('first_clicked_at')])
             ->when($request->string('search')->toString(), function ($query, string $search): void {
                 $query->where(fn ($nested) => $nested->where('first_name', 'like', "%{$search}%")
                     ->orWhere('last_name', 'like', "%{$search}%")
@@ -27,6 +33,34 @@ class CustomerController extends Controller
                     ->orWhere('phone_e164', 'like', "%{$search}%"));
             })
             ->when($request->string('status')->toString(), fn ($query, string $status) => $query->where('status', $status))
+            ->when($request->string('source')->toString(), fn ($query, string $source) => $query->where('source', $source))
+            ->when($request->string('visit')->toString(), function ($query, string $filter): void {
+                match ($filter) {
+                    'has_visits' => $query->has('visits'),
+                    'no_visits' => $query->doesntHave('visits'),
+                    'recent_30' => $query->whereHas('visits', fn ($visit) => $visit->where('completed_at', '>=', now()->subDays(30))),
+                    'inactive_90' => $query->whereDoesntHave('visits', fn ($visit) => $visit->where('completed_at', '>=', now()->subDays(90))),
+                    default => null,
+                };
+            })
+            ->when($request->string('link')->toString(), function ($query, string $filter): void {
+                match ($filter) {
+                    'clicked' => $query->whereHas('reviewLinks', fn ($link) => $link->whereNotNull('first_clicked_at')),
+                    'not_clicked' => $query->whereHas('reviewLinks')
+                        ->whereDoesntHave('reviewLinks', fn ($link) => $link->whereNotNull('first_clicked_at')),
+                    'no_link' => $query->doesntHave('reviewLinks'),
+                    default => null,
+                };
+            })
+            ->when($request->string('sms')->toString(), function ($query, string $filter): void {
+                match ($filter) {
+                    'consented' => $query->whereHas('latestSmsConsent', fn ($consent) => $consent->where('status', 'granted'))
+                        ->whereDoesntHave('suppressions', fn ($suppression) => $suppression->where('channel', 'sms')->whereNull('released_at')),
+                    'suppressed' => $query->whereHas('suppressions', fn ($suppression) => $suppression->where('channel', 'sms')->whereNull('released_at')),
+                    'not_recorded' => $query->whereDoesntHave('latestSmsConsent', fn ($consent) => $consent->where('status', 'granted')),
+                    default => null,
+                };
+            })
             ->latest()
             ->paginate(25);
 
@@ -45,7 +79,13 @@ class CustomerController extends Controller
 
     public function show(Request $request, string $customer): JsonResponse
     {
-        return response()->json(['data' => $this->scoped($request, $customer)->load(['consents', 'suppressions'])]);
+        return response()->json(['data' => $this->scoped($request, $customer)->load([
+            'consents' => fn ($query) => $query->latest('recorded_at'),
+            'suppressions' => fn ($query) => $query->latest('suppressed_at'),
+            'visits' => fn ($query) => $query->with(['location:id,name', 'reviewLinks.destination:id,provider', 'messageDeliveries.template:id,name'])->latest('completed_at'),
+            'reviewLinks' => fn ($query) => $query->with(['location:id,name', 'destination:id,provider', 'deliveries.template:id,name'])->latest(),
+            'messageDeliveries' => fn ($query) => $query->with(['template:id,name', 'reviewLink:id,first_clicked_at,click_count'])->latest(),
+        ])]);
     }
 
     public function update(Request $request, string $customer, Auditor $auditor): JsonResponse
@@ -89,6 +129,21 @@ class CustomerController extends Controller
         $auditor->record($request, 'customer.suppressed', $entry, ['reason' => $entry->reason]);
 
         return response()->json(['data' => $entry], 201);
+    }
+
+    public function releaseSuppression(Request $request, string $customer, Auditor $auditor): JsonResponse
+    {
+        $model = $this->scoped($request, $customer);
+        $data = $request->validate(['channel' => ['sometimes', Rule::in(['sms', 'whatsapp'])]]);
+        $entry = $model->suppressions()
+            ->where('channel', $data['channel'] ?? 'sms')
+            ->whereNull('released_at')
+            ->latest('suppressed_at')
+            ->firstOrFail();
+        $entry->update(['released_at' => now()]);
+        $auditor->record($request, 'customer.suppression_released', $entry, ['channel' => $entry->channel]);
+
+        return response()->json(['data' => $entry->fresh()]);
     }
 
     public function import(Request $request): JsonResponse

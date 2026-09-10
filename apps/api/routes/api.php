@@ -99,12 +99,14 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/customers/import-csv', [CustomerController::class, 'importCsv']);
                 Route::post('/customers/{customer}/consents', [CustomerController::class, 'consent']);
                 Route::post('/customers/{customer}/suppressions', [CustomerController::class, 'suppress']);
+                Route::delete('/customers/{customer}/suppressions', [CustomerController::class, 'releaseSuppression']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::patch('/customers/{customer}', [CustomerController::class, 'update']);
 
                 Route::post('/templates/preview', [TemplateController::class, 'preview']);
                 Route::post('/templates', [TemplateController::class, 'store']);
                 Route::patch('/templates/{template}', [TemplateController::class, 'update']);
+                Route::delete('/templates/{template}', [TemplateController::class, 'destroy']);
                 Route::post('/templates/{template}/duplicate', [TemplateController::class, 'duplicate']);
                 Route::post('/templates/{template}/test', [TemplateController::class, 'sendTest'])->middleware('throttle:5,1');
                 Route::post('/templates/{template}/media', [TemplateController::class, 'upload']);

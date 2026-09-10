@@ -4,6 +4,8 @@ namespace App\Domain\Visits\Models;
 
 use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Customers\Models\Customer;
+use App\Domain\Messaging\Models\MessageDelivery;
+use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\Location;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -35,6 +37,16 @@ class Visit extends Model
     public function dispatches(): HasMany
     {
         return $this->hasMany(AutomationDispatch::class);
+    }
+
+    public function reviewLinks(): HasMany
+    {
+        return $this->hasMany(ReviewLink::class);
+    }
+
+    public function messageDeliveries(): HasMany
+    {
+        return $this->hasMany(MessageDelivery::class);
     }
 
     protected function casts(): array

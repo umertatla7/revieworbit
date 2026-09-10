@@ -4,38 +4,374 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
-type Overview = {
-  business: { name: string; onboarding_status: string; operation_mode: string; locations: unknown[]; pos_integrations: { status: string }[] };
-  checks: Record<string, boolean>; completed_count: number; total_count: number;
+type Entitlements = {
+  plan_name: string;
+  location_limit: number;
+  locations_used: number;
+  review_destination_limit: number;
+  review_destinations_used: number;
+  template_limit: number;
+  templates_used: number;
+  media_template_limit: number;
+  media_templates_used: number;
+  automation_limit: number;
+  automations_used: number;
+  included_message_credits: number;
+  message_credits_used: number;
+};
+type Business = {
+  name: string;
+  operation_mode: string;
+  locations: { id: string; name: string; review_destinations: unknown[] }[];
+  entitlements: Entitlements;
+};
+type Customer = {
+  id: string;
+  first_name: string;
+  last_name?: string;
+  visits_count?: number;
+  review_links_count?: number;
+  clicked_review_links_count?: number;
+};
+type ReviewMeta = {
+  total: number;
+  messages_sent: number;
+  links_clicked: number;
+  click_rate: number;
+};
+type Messaging = {
+  configuration: { status: string; sms_enabled: boolean } | null;
+  platform: { configured: boolean };
 };
 
 export default function DashboardPage() {
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [counts, setCounts] = useState({ customers: 0, visits: 0, automations: 0 });
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerTotal, setCustomerTotal] = useState(0);
+  const [visits, setVisits] = useState(0);
+  const [posStatus, setPosStatus] = useState<string | null>(null);
+  const [review, setReview] = useState<ReviewMeta>({
+    total: 0,
+    messages_sent: 0,
+    links_clicked: 0,
+    click_rate: 0,
+  });
+  const [messaging, setMessaging] = useState<Messaging | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     Promise.all([
-      api<{ data: Overview }>("/api/v1/onboarding", {}, true),
-      api<{ data: unknown[] }>("/api/v1/customers", {}, true),
-      api<{ data: unknown[] }>("/api/v1/visits", {}, true),
-      api<{ data: unknown[] }>("/api/v1/automations", {}, true),
-    ]).then(([onboarding, customers, visits, automations]) => {
-      setOverview(onboarding.data);
-      setCounts({ customers: customers.data.length, visits: visits.data.length, automations: automations.data.length });
-    }).catch((error) => setMessage(error.message));
+      api<{ data: Business }>("/api/v1/business", {}, true),
+      api<{ data: Customer[]; meta: { total: number } }>(
+        "/api/v1/customers",
+        {},
+        true,
+      ),
+      api<{ data: unknown[]; meta: { total: number } }>(
+        "/api/v1/visits",
+        {},
+        true,
+      ),
+      api<{ data: unknown[]; meta: ReviewMeta }>(
+        "/api/v1/review-links",
+        {},
+        true,
+      ),
+      api<{ data: Messaging }>("/api/v1/messaging-configuration", {}, true),
+      api<{ data: { status: string }[] }>("/api/v1/pos-integrations", {}, true),
+    ])
+      .then(
+        ([
+          businessResult,
+          customerResult,
+          visitResult,
+          reviewResult,
+          messagingResult,
+          posResult,
+        ]) => {
+          setBusiness(businessResult.data);
+          setCustomers(customerResult.data.slice(0, 5));
+          setCustomerTotal(customerResult.meta.total);
+          setVisits(visitResult.meta.total);
+          setReview(reviewResult.meta);
+          setMessaging(messagingResult.data);
+          setPosStatus(posResult.data[0]?.status ?? null);
+        },
+      )
+      .catch((error: Error) => setMessage(error.message));
   }, []);
 
-  const progress = overview ? Math.round((overview.completed_count / overview.total_count) * 100) : 0;
-  const connection = overview?.business.pos_integrations?.[0];
+  const entitlements = business?.entitlements;
+  const smsReady = Boolean(
+    messaging?.platform.configured &&
+    messaging.configuration?.status === "active" &&
+    messaging.configuration.sms_enabled,
+  );
 
-  return <div className="mx-auto max-w-[1380px]">
-    <div className="flex flex-col justify-between gap-4 border-b border-ink/8 pb-6 sm:flex-row sm:items-end"><div><p className="eyebrow">Workspace overview</p><h1 className="page-title">Good afternoon, {overview?.business.name ?? "ReviewOrbit"}</h1><p className="page-intro">A concise view of customer activity, visit automation, and workspace readiness.</p></div><div className="flex gap-2"><Link className="rounded-lg border border-ink/10 bg-white px-4 py-2.5 text-sm font-semibold" href="/dashboard/integrations">Manage POS</Link><Link className="button-primary" href="/dashboard/automations">+ Record visit</Link></div></div>
-    {message && <p role="alert" className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-xs text-red-800">{message}</p>}
-    <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Customers" value={counts.customers} detail="Consent-aware contacts"/><Metric label="Completed visits" value={counts.visits} detail="Manual and connected sources"/><Metric label="Active automations" value={counts.automations} detail="Eligibility rules"/><Metric label="POS status" value={connection?.status.replaceAll("_", " ") ?? overview?.business.operation_mode ?? "manual"} detail={connection ? "Connection configured" : "No external POS yet"}/></div>
-    <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]"><section className="overflow-hidden rounded-xl border border-ink/8 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-ink/8 px-5 py-4"><div><h2 className="text-sm font-semibold">Workspace readiness</h2><p className="mt-0.5 text-[11px] text-ink/40">Complete the essentials before enabling live messaging.</p></div><div className="text-right"><strong className="text-lg">{progress}%</strong><p className="text-[10px] text-ink/35">{overview?.completed_count ?? 0}/{overview?.total_count ?? 7} complete</p></div></div><div className="h-1 bg-paper"><div className="h-full bg-forest" style={{ width: `${progress}%` }}/></div><div className="grid gap-x-6 px-5 py-2 sm:grid-cols-2">{Object.entries(overview?.checks ?? {}).map(([key, complete]) => <div key={key} className="flex items-center gap-3 border-b border-ink/6 py-3"><span className={`grid size-5 place-items-center rounded-full text-[9px] font-bold ${complete ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>{complete ? "✓" : "·"}</span><span className="text-xs font-medium capitalize">{key.replaceAll("_", " ")}</span></div>)}</div>{overview?.business.onboarding_status !== "completed" && <div className="border-t border-ink/8 px-5 py-4"><Link href="/onboarding" className="text-xs font-semibold text-forest">Continue onboarding →</Link></div>}</section><aside className="space-y-5"><section className="rounded-xl bg-[#17231f] p-5 text-white"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-mint">Quick actions</p><div className="mt-3 space-y-1"><Quick href="/dashboard/customers" title="Add or import customers"/><Quick href="/dashboard/templates" title="Prepare a message template"/><Quick href="/dashboard/messages" title="Configure SMS and WhatsApp"/><Quick href="/dashboard/integrations" title="Connect a POS or API"/><Quick href="/dashboard/settings" title="Manage business settings"/></div></section><section className="rounded-xl border border-ink/8 bg-white p-5"><p className="eyebrow">Messaging</p><p className="mt-2 text-sm font-semibold">Twilio delivery is available</p><p className="mt-1 text-xs leading-5 text-ink/40">Configure an isolated subaccount, approved senders, and channel-specific consent before activation.</p><Link href="/dashboard/messages" className="mt-3 inline-block text-xs font-semibold text-forest">Open messaging setup →</Link></section></aside></div>
-  </div>;
+  return (
+    <div className="mx-auto max-w-[1380px]">
+      <header className="flex flex-col justify-between gap-4 border-b border-ink/8 pb-6 sm:flex-row sm:items-end">
+        <div>
+          <p className="eyebrow">Workspace overview</p>
+          <h1 className="page-title">
+            Welcome back, {business?.name ?? "ReviewOrbit"}
+          </h1>
+          <p className="page-intro">
+            Your business activity and setup, explained in one place.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Link className="button-secondary" href="/dashboard/locations">
+            Manage locations
+          </Link>
+          <Link className="button-primary" href="/dashboard/customers">
+            View customers
+          </Link>
+        </div>
+      </header>
+      {message && (
+        <p
+          role="alert"
+          className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-xs text-red-800"
+        >
+          {message}
+        </p>
+      )}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric
+          label="Customers"
+          value={customerTotal}
+          detail="Contacts in your workspace"
+        />
+        <Metric
+          label="Completed visits"
+          value={visits}
+          detail="Manual and POS visits"
+        />
+        <Metric
+          label="Messages sent"
+          value={review.messages_sent}
+          detail={`${entitlements?.message_credits_used ?? 0} credits used this month`}
+        />
+        <Metric
+          label="Review link clicked"
+          value={`${review.click_rate}%`}
+          detail={`${review.links_clicked} of ${review.total} tracking links`}
+        />
+      </div>
+      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="overflow-hidden rounded-xl border border-ink/8 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-ink/8 px-5 py-4">
+            <div>
+              <h2 className="text-sm font-semibold">
+                Your {entitlements?.plan_name ?? "current"} plan
+              </h2>
+              <p className="mt-1 text-[11px] text-ink/40">
+                See what is configured and what is still available.
+              </p>
+            </div>
+            <Link
+              className="text-xs font-semibold text-forest"
+              href="/dashboard/billing"
+            >
+              View plan
+            </Link>
+          </div>
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <Usage
+              label="Locations"
+              used={entitlements?.locations_used}
+              limit={entitlements?.location_limit}
+              href="/dashboard/locations"
+            />
+            <Usage
+              label="Review links"
+              used={entitlements?.review_destinations_used}
+              limit={entitlements?.review_destination_limit}
+              href="/dashboard/locations"
+            />
+            <Usage
+              label="Message templates"
+              used={entitlements?.templates_used}
+              limit={entitlements?.template_limit}
+              href="/dashboard/templates"
+            />
+            <Usage
+              label="Personalized media"
+              used={entitlements?.media_templates_used}
+              limit={entitlements?.media_template_limit}
+              href="/dashboard/media"
+            />
+            <Usage
+              label="Automations"
+              used={entitlements?.automations_used}
+              limit={entitlements?.automation_limit}
+              href="/dashboard/automations"
+            />
+            <Usage
+              label="Message credits"
+              used={entitlements?.message_credits_used}
+              limit={entitlements?.included_message_credits}
+              href="/dashboard/messages"
+            />
+          </div>
+        </section>
+        <aside className="rounded-xl bg-[#17231f] p-5 text-white">
+          <p className="eyebrow text-mint">Connection status</p>
+          <Status
+            label="Location & review link"
+            ready={
+              (business?.locations.length ?? 0) > 0 &&
+              (entitlements?.review_destinations_used ?? 0) > 0
+            }
+            href="/dashboard/locations"
+          />
+          <Status
+            label="Twilio SMS"
+            ready={smsReady}
+            href="/dashboard/messages"
+          />
+          <Status
+            label="POS integration"
+            ready={Boolean(posStatus)}
+            detail={posStatus?.replaceAll("_", " ") ?? "Not connected"}
+            href="/dashboard/integrations"
+          />
+          <Status
+            label="Message template"
+            ready={(entitlements?.templates_used ?? 0) > 0}
+            href="/dashboard/templates"
+          />
+        </aside>
+      </div>
+      <section className="mt-6 overflow-hidden rounded-xl border border-ink/8 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-ink/8 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold">Recent customers</h2>
+            <p className="mt-1 text-[11px] text-ink/40">
+              A quick look at their visit and review-link activity.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/customers"
+            className="text-xs font-semibold text-forest"
+          >
+            See all customers →
+          </Link>
+        </div>
+        <div className="divide-y divide-ink/8">
+          {customers.map((customer) => (
+            <Link
+              href="/dashboard/customers"
+              key={customer.id}
+              className="grid gap-2 px-5 py-4 text-xs transition hover:bg-paper sm:grid-cols-[1fr_140px_180px]"
+            >
+              <strong>
+                {customer.first_name} {customer.last_name}
+              </strong>
+              <span>{customer.visits_count ?? 0} visits</span>
+              <span
+                className={
+                  (customer.clicked_review_links_count ?? 0) > 0
+                    ? "text-emerald-700"
+                    : "text-ink/45"
+                }
+              >
+                {(customer.clicked_review_links_count ?? 0) > 0
+                  ? "Review link clicked"
+                  : (customer.review_links_count ?? 0) > 0
+                    ? "Link not clicked"
+                    : "No review link sent"}
+              </span>
+            </Link>
+          ))}
+          {customers.length === 0 && (
+            <p className="p-8 text-center text-xs text-ink/45">
+              No customers yet. Add one manually or connect your POS.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
 
-function Metric({ label, value, detail }: { label: string; value: number | string; detail: string }) { return <article className="rounded-xl border border-ink/8 bg-white p-4 shadow-sm"><p className="text-xs text-ink/45">{label}</p><p className="mt-2 text-2xl font-semibold capitalize">{value}</p><p className="mt-1 text-[10px] text-ink/35">{detail}</p></article>; }
-function Quick({ href, title }: { href: string; title: string }) { return <Link className="flex items-center justify-between rounded-lg px-3 py-2.5 text-xs font-medium text-white/65 transition hover:bg-white/8 hover:text-white" href={href}><span>{title}</span><span>→</span></Link>; }
+function Metric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: number | string;
+  detail: string;
+}) {
+  return (
+    <article className="rounded-xl border border-ink/8 bg-white p-4 shadow-sm">
+      <p className="text-xs text-ink/45">{label}</p>
+      <p className="mt-2 text-2xl font-semibold capitalize">{value}</p>
+      <p className="mt-1 text-[10px] text-ink/35">{detail}</p>
+    </article>
+  );
+}
+function Usage({
+  label,
+  used = 0,
+  limit = 0,
+  href,
+}: {
+  label: string;
+  used?: number;
+  limit?: number;
+  href: string;
+}) {
+  const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  return (
+    <Link
+      href={href}
+      className="rounded-xl border border-ink/8 p-4 transition hover:border-forest/30"
+    >
+      <div className="flex items-center justify-between text-xs">
+        <strong>{label}</strong>
+        <span>
+          {used} / {limit}
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper">
+        <div
+          className="h-full rounded-full bg-forest"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </Link>
+  );
+}
+function Status({
+  label,
+  ready,
+  detail,
+  href,
+}: {
+  label: string;
+  ready: boolean;
+  detail?: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="mt-3 flex items-center gap-3 rounded-xl bg-white/6 p-3 transition hover:bg-white/10"
+    >
+      <span
+        className={`grid size-7 shrink-0 place-items-center rounded-full text-xs ${ready ? "bg-mint text-ink" : "bg-white/10 text-white/50"}`}
+      >
+        {ready ? "✓" : "→"}
+      </span>
+      <span>
+        <strong className="block text-xs">{label}</strong>
+        <span className="mt-0.5 block text-[10px] capitalize text-white/45">
+          {detail ?? (ready ? "Ready" : "Needs setup")}
+        </span>
+      </span>
+    </Link>
+  );
+}

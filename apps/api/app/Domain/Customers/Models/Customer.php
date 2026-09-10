@@ -2,6 +2,8 @@
 
 namespace App\Domain\Customers\Models;
 
+use App\Domain\Messaging\Models\MessageDelivery;
+use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Visits\Models\Visit;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -9,6 +11,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['business_id', 'first_name', 'last_name', 'email', 'phone_e164', 'phone_hash', 'status', 'source'])]
 class Customer extends Model
@@ -25,6 +28,12 @@ class Customer extends Model
         return $this->hasMany(CustomerConsent::class);
     }
 
+    public function latestSmsConsent(): HasOne
+    {
+        return $this->hasOne(CustomerConsent::class)
+            ->ofMany(['recorded_at' => 'max', 'id' => 'max'], fn ($query) => $query->where('channel', 'sms'));
+    }
+
     public function suppressions(): HasMany
     {
         return $this->hasMany(SuppressionEntry::class);
@@ -38,6 +47,16 @@ class Customer extends Model
     public function visits(): HasMany
     {
         return $this->hasMany(Visit::class);
+    }
+
+    public function reviewLinks(): HasMany
+    {
+        return $this->hasMany(ReviewLink::class);
+    }
+
+    public function messageDeliveries(): HasMany
+    {
+        return $this->hasMany(MessageDelivery::class);
     }
 
     protected function casts(): array

@@ -32,7 +32,7 @@ class TestBusinessAndAdminAnalyticsTest extends TestCase
             $this->assertSame(8, $business->customers()->withCount('visits')->get()->sum('visits_count'));
             $this->assertSame(8, $business->hasMany(MessageDelivery::class)->where('provider', 'fixture')->count());
         }
-        $this->assertDatabaseHas('subscription_plans', ['code' => 'basic', 'location_limit' => 1, 'template_limit' => 1, 'media_template_limit' => 1, 'review_destination_limit' => 1]);
+        $this->assertDatabaseHas('subscription_plans', ['code' => 'basic', 'location_limit' => 1, 'template_limit' => 5, 'media_template_limit' => 1, 'review_destination_limit' => 1]);
         $this->assertDatabaseHas('subscription_plans', ['code' => 'growth', 'location_limit' => 5, 'template_limit' => 5, 'media_template_limit' => 5, 'review_destination_limit' => 5]);
         $this->assertDatabaseHas('subscription_plans', ['code' => 'pro', 'location_limit' => 15, 'template_limit' => 15, 'media_template_limit' => 15, 'review_destination_limit' => 15]);
         $this->assertDatabaseMissing('message_deliveries', ['provider' => 'twilio']);
