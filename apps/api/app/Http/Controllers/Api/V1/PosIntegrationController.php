@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Integrations\Models\PosIntegration;
 use App\Domain\Integrations\Services\SquareConnector;
+use App\Domain\Integrations\Services\ToastConnector;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,15 +13,16 @@ use Illuminate\Validation\Rule;
 
 class PosIntegrationController extends Controller
 {
-    public function index(Request $request, SquareConnector $square): JsonResponse
+    public function index(Request $request, SquareConnector $square, ToastConnector $toast): JsonResponse
     {
         $business = $request->attributes->get('business');
 
         return response()->json(['data' => [
-            'connections' => PosIntegration::where('business_id', $business->id)->latest()->get(),
+            'connections' => PosIntegration::where('business_id', $business->id)->with('toastRestaurants.location:id,name')->latest()->get(),
             'providers' => [
                 ['id' => 'generic', 'name' => 'Generic POS / API', 'availability' => 'available', 'description' => 'Connect any POS that can send completed-visit events using an API key or signed webhook.'],
                 ['id' => 'square', 'name' => 'Square Appointments', 'availability' => $square->configured() ? 'available' : 'configuration required', 'configured' => $square->configured(), 'description' => 'Connect securely with Square OAuth and import locations, customers, previous appointments, and upcoming appointments.'],
+                ['id' => 'toast', 'name' => 'Toast POS', 'availability' => $toast->configured() ? 'available' : 'partner setup required', 'configured' => $toast->configured(), 'description' => 'Connect each Toast restaurant location using its ReviewOrbit location code. Completed checks are imported as visits; contact data never implies messaging consent.'],
                 ['id' => 'manual', 'name' => 'Manual mode', 'availability' => 'available', 'description' => 'Record completed visits from the dashboard without connecting a POS.'],
             ],
         ]]);

@@ -12,8 +12,11 @@ describe("customer onboarding", () => {
       if (path === "/api/v1/pos-integrations") return Promise.resolve({ data: { connections: [], providers: [
         { id: "generic", name: "Generic POS / API", availability: "available", description: "Connect a POS API." },
         { id: "square", name: "Square Appointments", availability: "available", configured: true, description: "Connect Square securely." },
+        { id: "toast", name: "Toast POS", availability: "partner setup required", configured: false, description: "Connect Toast locations." },
         { id: "manual", name: "Manual mode", availability: "available", description: "Use manual visits." },
       ] } });
+      if (path === "/api/v1/toast/connections") return Promise.resolve({ data: { ready: false, environment: "sandbox", requests: [], connections: [] } });
+      if (path === "/api/v1/business") return Promise.resolve({ data: { locations: [] } });
       return Promise.resolve({ data: {
         business: { id: "business-1", name: "AL Barber Shop", default_timezone: "America/New_York", default_country: "US", operation_mode: "manual", onboarding_status: "in_progress", locations: [] },
         checks: { business_details: true, primary_location: false, google_review_url: false, message_template: false, messaging_preferences: false, consent_confirmation: false, integration: true },
@@ -29,6 +32,7 @@ describe("customer onboarding", () => {
     expect(screen.getByRole("heading", { name: "Connect your POS" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Connect API" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect Square account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Toast location code" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Square environment" })).toBeInTheDocument();
   });
 });

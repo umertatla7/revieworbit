@@ -47,6 +47,12 @@ return [
         'upcoming_days' => env('SQUARE_UPCOMING_DAYS', 365),
     ],
 
+    'toast' => [
+        'environment' => env('TOAST_ENVIRONMENT', 'sandbox'),
+        'history_days' => (int) env('TOAST_HISTORY_DAYS', 30),
+        'connection_code_days' => (int) env('TOAST_CONNECTION_CODE_DAYS', 30),
+    ],
+
     'twilio' => [
         'provider' => env('MESSAGING_PROVIDER', 'fake'),
         'account_sid' => env('TWILIO_ACCOUNT_SID'),

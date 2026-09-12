@@ -231,7 +231,7 @@ class CustomerController extends Controller
             'email' => ['nullable', 'email', 'max:255'],
             'phone' => [$required, 'string', 'max:32'],
             'status' => ['sometimes', Rule::in(['active', 'inactive'])],
-            'source' => ['sometimes', Rule::in(['manual', 'import', 'square'])],
+            'source' => ['sometimes', Rule::in(['manual', 'import', 'square', 'toast'])],
         ]);
     }
 

@@ -39,7 +39,7 @@ class PlatformBusinessController extends Controller
     public function show(string $business, PlanEntitlements $entitlements): JsonResponse
     {
         $model = Business::withCount(['locations', 'customers', 'posIntegrations'])
-            ->with(['locations', 'posIntegrations', 'memberships.user:id,name,email'])
+            ->with(['locations', 'posIntegrations.toastRestaurants.location:id,name', 'memberships.user:id,name,email'])
             ->findOrFail($business);
 
         return response()->json(['data' => [
@@ -71,7 +71,7 @@ class PlatformBusinessController extends Controller
             'country' => ['required', 'string', 'size:2'],
             'timezone' => ['required', 'timezone'],
             'google_review_url' => ['nullable', 'url:http,https', 'max:2048'],
-            'operation_mode' => ['required', Rule::in(['manual', 'generic', 'square'])],
+            'operation_mode' => ['required', Rule::in(['manual', 'generic', 'square', 'toast'])],
             'preferred_channel' => ['required', Rule::in(['sms', 'whatsapp'])],
             'quiet_hours_start' => ['required', 'date_format:H:i'],
             'quiet_hours_end' => ['required', 'date_format:H:i'],
@@ -110,7 +110,7 @@ class PlatformBusinessController extends Controller
             'default_country' => ['sometimes', 'string', 'size:2'],
             'onboarding_status' => ['sometimes', Rule::in(['in_progress', 'completed'])],
             'onboarding_step' => ['sometimes', 'integer', 'between:1,10'],
-            'operation_mode' => ['sometimes', Rule::in(['manual', 'generic', 'square'])],
+            'operation_mode' => ['sometimes', Rule::in(['manual', 'generic', 'square', 'toast'])],
         ]);
         if (isset($data['default_country'])) {
             $data['default_country'] = strtoupper($data['default_country']);

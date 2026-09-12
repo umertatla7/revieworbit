@@ -26,6 +26,7 @@ const adminNavigation: NavigationGroup[] = [
   ] },
   { label: "Configuration", items: [
     { href: "/admin/twilio", label: "Twilio setup", icon: "messages" },
+    { href: "/admin/toast", label: "Toast POS setup", icon: "integrations" },
     { href: "/admin/settings", label: "Platform settings", icon: "settings", badge: "Soon" },
     { href: "/admin/help", label: "Help & documentation", icon: "help" },
   ] },

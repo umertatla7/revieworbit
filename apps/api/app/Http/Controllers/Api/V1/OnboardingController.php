@@ -31,7 +31,7 @@ class OnboardingController extends Controller
             'messaging_preferences.quiet_hours_start' => ['sometimes', 'date_format:H:i'],
             'messaging_preferences.quiet_hours_end' => ['sometimes', 'date_format:H:i'],
             'consent_confirmed' => ['sometimes', 'boolean'],
-            'operation_mode' => ['sometimes', Rule::in(['manual', 'generic', 'square'])],
+            'operation_mode' => ['sometimes', Rule::in(['manual', 'generic', 'square', 'toast'])],
             'onboarding_step' => ['sometimes', 'integer', 'between:1,10'],
         ]);
         if (array_key_exists('consent_confirmed', $data)) {

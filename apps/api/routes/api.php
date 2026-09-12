@@ -11,11 +11,14 @@ use App\Http\Controllers\Api\V1\MessagingConfigurationController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\PlatformBusinessController;
 use App\Http\Controllers\Api\V1\PlatformPlanController;
+use App\Http\Controllers\Api\V1\PlatformToastController;
 use App\Http\Controllers\Api\V1\PlatformTwilioController;
 use App\Http\Controllers\Api\V1\PosIntegrationController;
 use App\Http\Controllers\Api\V1\ReviewLinkActivityController;
 use App\Http\Controllers\Api\V1\SquareIntegrationController;
 use App\Http\Controllers\Api\V1\TemplateController;
+use App\Http\Controllers\Api\V1\ToastIntegrationController;
+use App\Http\Controllers\Api\V1\ToastWebhookController;
 use App\Http\Controllers\Api\V1\TwilioWebhookController;
 use App\Http\Controllers\Api\V1\VisitController;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +57,7 @@ Route::prefix('api/v1')->group(function (): void {
     Route::post('/webhooks/generic', [GenericEventController::class, 'webhook'])->middleware('throttle:120,1');
     Route::post('/webhooks/twilio/status', [TwilioWebhookController::class, 'status'])->middleware('throttle:600,1');
     Route::post('/webhooks/twilio/inbound', [TwilioWebhookController::class, 'inbound'])->middleware('throttle:300,1');
+    Route::post('/webhooks/toast/{environment}/{category}', [ToastWebhookController::class, 'ingest'])->middleware('throttle:600,1');
     Route::get('/integrations/square/callback', [SquareIntegrationController::class, 'callback'])->middleware('throttle:30,1');
     Route::get('/m/{token}', [MediaController::class, 'serve'])->middleware('throttle:120,1');
 
@@ -80,10 +84,17 @@ Route::prefix('api/v1')->group(function (): void {
             Route::post('/verify', [PlatformTwilioController::class, 'verify'])->middleware('throttle:10,1');
         });
 
+        Route::prefix('admin/toast')->middleware('platform.role:super_admin')->group(function (): void {
+            Route::get('/', [PlatformToastController::class, 'show']);
+            Route::put('/', [PlatformToastController::class, 'update']);
+            Route::post('/verify', [PlatformToastController::class, 'verify'])->middleware('throttle:10,1');
+        });
+
         Route::middleware('business')->group(function (): void {
             Route::get('/business', [BusinessController::class, 'show']);
             Route::get('/onboarding', [OnboardingController::class, 'show']);
             Route::get('/pos-integrations', [PosIntegrationController::class, 'index']);
+            Route::get('/toast/connections', [ToastIntegrationController::class, 'index']);
             Route::get('/square/appointments', [SquareIntegrationController::class, 'appointments']);
             Route::get('/messaging-configuration', [MessagingConfigurationController::class, 'show']);
             Route::get('/message-deliveries', [MessagingConfigurationController::class, 'deliveries']);
@@ -124,6 +135,9 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/pos-integrations/square/authorize', [SquareIntegrationController::class, 'authorize']);
                 Route::post('/pos-integrations/{integration}/square/sync', [SquareIntegrationController::class, 'sync']);
                 Route::delete('/pos-integrations/{integration}/square', [SquareIntegrationController::class, 'disconnect']);
+                Route::post('/pos-integrations/toast/connect', [ToastIntegrationController::class, 'start']);
+                Route::delete('/pos-integrations/toast/requests/{connectionRequest}', [ToastIntegrationController::class, 'cancel']);
+                Route::post('/pos-integrations/toast/connections/{connection}/sync', [ToastIntegrationController::class, 'sync']);
                 Route::put('/messaging-configuration', [MessagingConfigurationController::class, 'update']);
                 Route::post('/messaging-configuration/verify', [MessagingConfigurationController::class, 'verify']);
 

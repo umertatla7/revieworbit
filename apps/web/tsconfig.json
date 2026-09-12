@@ -30,5 +30,12 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "src/app/globals 2.css",
+    "src/app/layout 2.tsx",
+    "src/app/page 2.tsx",
+    ".next/types/**/* 2.ts",
+    ".next/types/app 3/**/*"
+  ]
 }

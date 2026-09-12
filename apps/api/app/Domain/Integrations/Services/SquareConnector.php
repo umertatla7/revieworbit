@@ -17,7 +17,7 @@ class SquareConnector implements IntegrationConnector
         'APPOINTMENTS_ALL_READ',
     ];
 
-    public function configured(): bool
+    public function configured(?string $environment = null): bool
     {
         return (bool) (config('services.square.application_id') && config('services.square.application_secret') && config('services.square.redirect_uri'));
     }
