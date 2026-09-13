@@ -51,6 +51,7 @@ Route::prefix('api/v1')->group(function (): void {
 
     Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/auth/mobile/login', [AuthController::class, 'mobileLogin'])->middleware('throttle:5,1');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::post('/integrations/generic/events', [GenericEventController::class, 'ingest'])->middleware(['integration.key', 'throttle:120,1']);
@@ -64,6 +65,7 @@ Route::prefix('api/v1')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::post('/auth/mobile/logout', [AuthController::class, 'mobileLogout']);
         Route::post('/invitations/{token}/accept', [BusinessController::class, 'acceptInvitation'])->middleware('throttle:10,1');
 
         Route::prefix('admin')->middleware('platform.role:super_admin,platform_manager')->group(function (): void {
@@ -111,6 +113,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/customers/{customer}/consents', [CustomerController::class, 'consent']);
                 Route::post('/customers/{customer}/suppressions', [CustomerController::class, 'suppress']);
                 Route::delete('/customers/{customer}/suppressions', [CustomerController::class, 'releaseSuppression']);
+                Route::patch('/customers/{customer}/review-status', [CustomerController::class, 'reviewStatus']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::patch('/customers/{customer}', [CustomerController::class, 'update']);
 

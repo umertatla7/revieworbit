@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['business_id', 'first_name', 'last_name', 'email', 'phone_e164', 'phone_hash', 'status', 'source'])]
+#[Fillable(['business_id', 'first_name', 'last_name', 'email', 'phone_e164', 'phone_hash', 'status', 'review_request_status', 'review_confirmed_at', 'review_confirmation_source', 'review_confirmation_reference', 'source'])]
 class Customer extends Model
 {
     use HasUlids;
@@ -61,6 +61,6 @@ class Customer extends Model
 
     protected function casts(): array
     {
-        return ['last_visit_at' => 'datetime'];
+        return ['last_visit_at' => 'datetime', 'review_confirmed_at' => 'datetime'];
     }
 }

@@ -9,11 +9,27 @@ use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class MilestonesThreeToFiveTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_native_app_login_issues_and_revokes_a_device_token(): void
+    {
+        $user = User::factory()->create(['email' => 'mobile@example.com', 'password' => Hash::make('ReviewOrbit123!')]);
+
+        $token = $this->postJson('/api/v1/auth/mobile/login', [
+            'email' => 'mobile@example.com',
+            'password' => 'ReviewOrbit123!',
+            'device_name' => 'Umer iPhone',
+        ])->assertOk()->assertJsonPath('data.token_type', 'Bearer')->json('data.token');
+
+        $this->withToken($token)->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('data.email', 'mobile@example.com');
+        $this->withToken($token)->postJson('/api/v1/auth/mobile/logout')->assertNoContent();
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
 
     public function test_registration_creates_an_authenticated_owner_and_business(): void
     {
@@ -83,6 +99,27 @@ class MilestonesThreeToFiveTest extends TestCase
         $this->postJson('/api/v1/customers/'.$customerId.'/consents', ['status' => 'revoked', 'source' => 'written'], $headers)->assertCreated();
         $this->getJson('/api/v1/customers?sms=consented', $headers)->assertJsonPath('meta.total', 0);
         $this->getJson('/api/v1/customers?sms=not_recorded', $headers)->assertJsonPath('meta.total', 1);
+    }
+
+    public function test_review_confirmation_is_tenant_scoped_audited_and_reversible(): void
+    {
+        [$ownerA, $businessA] = $this->ownerAndBusiness('Business A');
+        [, $businessB] = $this->ownerAndBusiness('Business B');
+        $customerA = Customer::create(['business_id' => $businessA->id, 'first_name' => 'Ava']);
+        $customerB = Customer::create(['business_id' => $businessB->id, 'first_name' => 'Noah']);
+        $headers = ['X-Business-ID' => $businessA->id];
+
+        $this->actingAs($ownerA)->patchJson('/api/v1/customers/'.$customerA->id.'/review-status', [
+            'status' => 'review_confirmed', 'source' => 'customer_confirmed',
+        ], $headers)->assertOk()->assertJsonPath('data.review_request_status', 'review_confirmed');
+        $this->patchJson('/api/v1/customers/'.$customerB->id.'/review-status', [
+            'status' => 'review_confirmed', 'source' => 'manual',
+        ], $headers)->assertNotFound();
+        $this->patchJson('/api/v1/customers/'.$customerA->id.'/review-status', [
+            'status' => 'eligible',
+        ], $headers)->assertOk()->assertJsonPath('data.review_request_status', 'eligible');
+
+        $this->assertDatabaseHas('audit_logs', ['business_id' => $businessA->id, 'action' => 'customer.review_status_updated']);
     }
 
     public function test_viewers_can_read_but_cannot_create_customers(): void

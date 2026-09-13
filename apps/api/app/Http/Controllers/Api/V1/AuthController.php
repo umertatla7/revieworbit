@@ -80,11 +80,42 @@ class AuthController extends Controller
         return response()->json(['data' => $this->userPayload($request->user()->load('businessMemberships.business'))]);
     }
 
+    public function mobileLogin(Request $request): JsonResponse
+    {
+        $credentials = $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+            'device_name' => ['required', 'string', 'max:120'],
+        ]);
+        $user = User::where('email', Str::lower($credentials['email']))->where('status', 'active')->first();
+        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
+            throw ValidationException::withMessages(['email' => ['The supplied credentials are invalid.']]);
+        }
+
+        $user->forceFill(['last_login_at' => now()])->save();
+        $expiresAt = now()->addDays(90);
+        $token = $user->createToken($credentials['device_name'], ['mobile'], $expiresAt);
+
+        return response()->json(['data' => [
+            'token' => $token->plainTextToken,
+            'token_type' => 'Bearer',
+            'expires_at' => $expiresAt->toIso8601String(),
+            'user' => $this->userPayload($user->load('businessMemberships.business')),
+        ]]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
+        return response()->json(null, 204);
+    }
+
+    public function mobileLogout(Request $request): JsonResponse
+    {
+        $request->user()->currentAccessToken()?->delete();
 
         return response()->json(null, 204);
     }

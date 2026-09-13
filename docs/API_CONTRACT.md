@@ -1,5 +1,9 @@
 # API Contract
 
+Native clients authenticate with `POST /api/v1/auth/mobile/login`, store the returned bearer token in the platform Keychain/Keystore, and revoke it with `POST /api/v1/auth/mobile/logout`. Authenticated tenant requests include `X-Business-ID`; tenant identity is always verified server-side.
+
+Customer review eligibility is updated with `PATCH /api/v1/customers/{customer}/review-status`. Only `review_confirmed` permanently prevents future requests; tracking activity remains labeled **Review link clicked**.
+
 All JSON business APIs are under `/api/v1`; public provider callbacks and `/r/{token}` are deliberately separate. Sanctum cookie sessions protect the first-party web app. Generic integrations authenticate with a one-time-visible hashed API key or HMAC signature.
 
 ## Implemented identity, onboarding, administration, and Milestones 3–6 endpoints

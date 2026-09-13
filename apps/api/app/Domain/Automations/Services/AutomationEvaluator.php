@@ -74,6 +74,9 @@ class AutomationEvaluator
         if ($visit->customer->phone_e164 === null) {
             return 'phone_missing';
         }
+        if ($visit->customer->review_request_status === 'review_confirmed') {
+            return 'review_already_confirmed';
+        }
 
         $channel = $rule->messageTemplate->channel === 'mms' ? 'sms' : $rule->messageTemplate->channel;
         $consent = $visit->customer->consents->sortByDesc('recorded_at')->firstWhere('channel', $channel);

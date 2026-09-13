@@ -108,6 +108,18 @@ class MessagingTest extends TestCase
         $this->assertDatabaseMissing('message_deliveries', ['automation_dispatch_id' => $dispatch->id]);
     }
 
+    public function test_a_scheduled_message_is_cancelled_if_the_review_is_confirmed_before_send_time(): void
+    {
+        [, , , $customer, , , $dispatch] = $this->fixture();
+        $customer->update(['review_request_status' => 'review_confirmed', 'review_confirmed_at' => now()]);
+
+        (new SendAutomationDispatch($dispatch->id))->handle(app(MessagingManager::class));
+
+        $this->assertSame('cancelled', $dispatch->fresh()->decision);
+        $this->assertSame('review_already_confirmed', $dispatch->fresh()->reason_code);
+        $this->assertDatabaseMissing('message_deliveries', ['automation_dispatch_id' => $dispatch->id]);
+    }
+
     public function test_review_link_activity_and_resend_are_tenant_scoped(): void
     {
         [$ownerA, $businessA, , , , , $dispatchA] = $this->fixture('Business A');
@@ -135,7 +147,8 @@ class MessagingTest extends TestCase
             'business_id' => $business->id, 'name' => 'Welcome board', 'disk' => 'local',
             'background_image_path' => $path, 'width' => 1080, 'height' => 1080,
             'text_configuration' => [
-                'text' => '{{customer_first_name}}', 'color' => '#17201b', 'font_size' => 72, 'min_font_size' => 20,
+                'text' => '{{customer_first_name}}', 'color' => '#17201b', 'color_mode' => 'gradient',
+                'gradient_start' => '#174d3b', 'gradient_end' => '#7c3aed', 'font_size' => 72, 'min_font_size' => 20,
                 'font_family' => 'Poppins', 'align' => 'center', 'max_lines' => 2,
                 'x' => 22, 'y' => 38, 'width' => 56, 'height' => 24,
                 'top_left_x' => 24, 'top_left_y' => 36, 'top_right_x' => 79, 'top_right_y' => 40,

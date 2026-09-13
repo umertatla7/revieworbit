@@ -6,8 +6,10 @@ use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Services\FakeMessagingProvider;
 use App\Domain\Messaging\Services\TwilioCredentials;
 use App\Domain\Messaging\Services\TwilioMessagingProvider;
+use App\Models\PersonalAccessToken;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
         ResetPassword::createUrlUsing(fn (object $user, string $token): string => rtrim(config('services.frontend.url'), '/')
             .'/reset-password?token='.urlencode($token).'&email='.urlencode($user->getEmailForPasswordReset()));
     }

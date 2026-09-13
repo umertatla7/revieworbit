@@ -27,6 +27,15 @@ class SendAutomationDispatch implements ShouldBeUnique, ShouldQueue
     {
         $dispatch = AutomationDispatch::find($this->dispatchId);
         if ($dispatch?->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now())) {
+            $reviewConfirmed = $dispatch->visit()->whereHas(
+                'customer',
+                fn ($query) => $query->where('review_request_status', 'review_confirmed')
+            )->exists();
+            if ($reviewConfirmed) {
+                $dispatch->update(['decision' => 'cancelled', 'reason_code' => 'review_already_confirmed']);
+
+                return;
+            }
             if ($dispatch->sequence_number > 0 && ($dispatch->decision_context['cancel_after_click'] ?? false)) {
                 $clicked = AutomationDispatch::query()
                     ->where('visit_id', $dispatch->visit_id)

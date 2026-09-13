@@ -18,7 +18,7 @@ describe("visits and automations", () => {
     render(<AutomationsPage />);
 
     expect(screen.getByRole("heading", { name: "Build the follow-up journey" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ New automation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Create automation" })).toBeInTheDocument();
     expect(await screen.findByText("Growth automation allowance")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Complete visit & evaluate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create credentials" })).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   api,
@@ -41,38 +41,16 @@ const customerNavigation: NavigationGroup[] = [
     label: "Automation",
     collapsible: true,
     items: [
+      { href: "/dashboard/media", label: "Personalized media", icon: "media" },
       {
         href: "/dashboard/templates",
         label: "Message templates",
         icon: "templates",
       },
-      { href: "/dashboard/media", label: "Personalized media", icon: "media" },
       {
         href: "/dashboard/automations",
         label: "Automation rules",
         icon: "automation",
-      },
-    ],
-  },
-  {
-    label: "Connections",
-    collapsible: true,
-    items: [
-      {
-        href: "/dashboard/integrations",
-        label: "POS & integrations",
-        icon: "integrations",
-      },
-      {
-        href: "/dashboard/messages",
-        label: "Twilio / SMS connection",
-        icon: "messages",
-      },
-      {
-        href: "/dashboard/webhooks",
-        label: "Webhook activity",
-        icon: "webhooks",
-        badge: "Soon",
       },
     ],
   },
@@ -120,10 +98,22 @@ const customerNavigation: NavigationGroup[] = [
   },
 ];
 
+const supportConnections: NavigationGroup = {
+  label: "Connections · admin only",
+  collapsible: true,
+  items: [
+    { href: "/dashboard/integrations", label: "POS & integrations", icon: "integrations" },
+    { href: "/dashboard/messages", label: "Twilio / SMS connection", icon: "messages" },
+    { href: "/dashboard/webhooks", label: "Webhook activity", icon: "webhooks", badge: "Soon" },
+  ],
+};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [supportBusiness, setSupportBusiness] = useState<string | null>(null);
+  const [supportReady, setSupportReady] = useState(false);
 
   useEffect(() => {
     api<{ data: SessionUser }>("/api/v1/auth/me")
@@ -132,6 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const supportName = supportBusinessName();
         const businessId = selectedBusinessId();
         setSupportBusiness(supportName);
+        setSupportReady(true);
         if (!businessId && data.businesses[0])
           selectBusiness(data.businesses[0].id);
         if (!businessId && !data.businesses[0] && data.is_platform_admin)
@@ -139,6 +130,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       })
       .catch(() => router.replace("/login"));
   }, [router]);
+
+  useEffect(() => {
+    const connectionPages = ["/dashboard/integrations", "/dashboard/messages", "/dashboard/webhooks"];
+    if (supportReady && !supportBusiness && connectionPages.some((path) => pathname.startsWith(path))) {
+      router.replace("/dashboard");
+    }
+  }, [pathname, router, supportBusiness, supportReady]);
 
   useEffect(() => {
     const supportExpired = () => {
@@ -177,10 +175,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </button>
     </div>
   ) : undefined;
+  const navigation = supportBusiness
+    ? [...customerNavigation.slice(0, 3), supportConnections, ...customerNavigation.slice(3)]
+    : customerNavigation;
 
   return (
     <WorkspaceShell
-      groups={customerNavigation}
+      groups={navigation}
       mode="customer"
       userName={user?.name ?? "Loading…"}
       userDetail={user?.email ?? "Customer account"}

@@ -32,7 +32,11 @@ class AutomationController extends Controller
         abort_unless($limits['can_add_automation'], 422, 'Your current plan has reached its automation limit.');
         $data = $this->validated($request);
         $this->validateStepLimit($data, $limits['automation_step_limit']);
+        $this->validateStepTiming($data);
         $this->validateTenantReferences($businessId, $data);
+        $preferences = $request->attributes->get('business')->messaging_preferences ?? [];
+        $data['quiet_hours_start'] ??= $preferences['quiet_hours_start'] ?? '20:00';
+        $data['quiet_hours_end'] ??= $preferences['quiet_hours_end'] ?? '09:00';
         $followUps = $data['follow_ups'] ?? [];
         unset($data['follow_ups']);
         $rule = AutomationRule::create([...$data, 'business_id' => $businessId]);
@@ -51,6 +55,7 @@ class AutomationController extends Controller
         $rule = AutomationRule::where('business_id', $businessId)->findOrFail($automation);
         $data = $this->validated($request, true);
         $this->validateStepLimit($data, $entitlements->for($request->attributes->get('business'))['automation_step_limit']);
+        $this->validateStepTiming($data, $rule->delay_minutes);
         $this->validateTenantReferences($businessId, $data);
         $followUps = $data['follow_ups'] ?? null;
         unset($data['follow_ups']);
@@ -124,6 +129,20 @@ class AutomationController extends Controller
     {
         if (1 + count($data['follow_ups'] ?? []) > $limit) {
             throw ValidationException::withMessages(['follow_ups' => ["Your plan allows {$limit} message step(s) per automation."]]);
+        }
+    }
+
+    private function validateStepTiming(array $data, ?int $existingInitialDelay = null): void
+    {
+        $previous = (int) ($data['delay_minutes'] ?? $existingInitialDelay ?? 0);
+        foreach ($data['follow_ups'] ?? [] as $index => $followUp) {
+            $delay = (int) $followUp['delay_minutes'];
+            if ($delay <= $previous) {
+                throw ValidationException::withMessages([
+                    "follow_ups.{$index}.delay_minutes" => ['Each follow-up must be scheduled later than the message before it.'],
+                ]);
+            }
+            $previous = $delay;
         }
     }
 }

@@ -37,7 +37,8 @@ class PersonalizedMediaRenderer
         $boxWidth = max(40, (int) round(($this->distance($points[0], $points[1]) + $this->distance($points[3], $points[2])) / 2));
         $boxHeight = max(24, (int) round(($this->distance($points[0], $points[3]) + $this->distance($points[1], $points[2])) / 2));
         $draw = new \ImagickDraw;
-        $draw->setFillColor((string) ($configuration['color'] ?? '#17201b'));
+        $gradientText = ($configuration['color_mode'] ?? 'solid') === 'gradient';
+        $draw->setFillColor($gradientText ? '#ffffff' : (string) ($configuration['color'] ?? '#17201b'));
         $draw->setTextAlignment(match ($configuration['align'] ?? 'center') {
             'left' => \Imagick::ALIGN_LEFT,
             'right' => \Imagick::ALIGN_RIGHT,
@@ -81,6 +82,16 @@ class PersonalizedMediaRenderer
         };
         foreach ($lines as $index => $line) {
             $textLayer->annotateImage($draw, $anchorX, $startY + ($index * $lineHeight), 0, $line);
+        }
+        if ($gradientText) {
+            $gradient = new \Imagick;
+            $start = (string) ($configuration['gradient_start'] ?? '#174d3b');
+            $end = (string) ($configuration['gradient_end'] ?? '#7c3aed');
+            $gradient->newPseudoImage($image->getImageWidth(), $image->getImageHeight(), "gradient:{$start}-{$end}");
+            $gradient->setImageFormat('png');
+            $gradient->compositeImage($textLayer, \Imagick::COMPOSITE_DSTIN, 0, 0);
+            $textLayer->clear();
+            $textLayer = $gradient;
         }
         $textLayer->setImageVirtualPixelMethod(\Imagick::VIRTUALPIXELMETHOD_TRANSPARENT);
         $textLayer->setImageArtifact('distort:viewport', $image->getImageWidth().'x'.$image->getImageHeight().'+0+0');

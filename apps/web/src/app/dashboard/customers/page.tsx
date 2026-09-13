@@ -39,6 +39,9 @@ type Customer = {
   phone_e164?: string;
   status: string;
   source: string;
+  review_request_status: "eligible" | "review_confirmed";
+  review_confirmed_at?: string;
+  review_confirmation_source?: string;
   consents: Consent[];
   suppressions: Suppression[];
   visits?: Visit[];
@@ -68,6 +71,7 @@ export default function CustomersPage() {
     link: "",
     sms: "",
     source: "",
+    review_status: "",
   });
   const [dialog, setDialog] = useState<"add" | "import" | null>(null);
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -215,6 +219,27 @@ export default function CustomersPage() {
     }
   }
 
+  async function changeReviewStatus(customer: Customer) {
+    const confirmed = customer.review_request_status === "review_confirmed";
+    setBusy(true);
+    try {
+      await api(`/api/v1/customers/${customer.id}/review-status`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: confirmed ? "eligible" : "review_confirmed",
+          source: confirmed ? undefined : "manual",
+        }),
+      }, true);
+      setMessage(confirmed ? "Customer is eligible for future review requests again." : "Review confirmed. Future review requests and pending follow-ups are stopped.");
+      await openCustomer(customer.id);
+      await load(meta.current_page);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to update review eligibility.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-[1380px]">
       <header className="flex flex-col justify-between gap-5 border-b border-ink/8 pb-6 lg:flex-row lg:items-end">
@@ -281,7 +306,7 @@ export default function CustomersPage() {
             </p>
           </div>
           <form
-            className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[1.5fr_repeat(4,1fr)_auto]"
+            className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[1.5fr_repeat(5,1fr)_auto]"
             onSubmit={(event) => {
               event.preventDefault();
               void load(1);
@@ -328,6 +353,15 @@ export default function CustomersPage() {
               ]}
             />
             <Filter
+              value={filters.review_status}
+              onChange={(review_status) => setFilters({ ...filters, review_status })}
+              label="All review eligibility"
+              options={[
+                ["eligible", "Can request review"],
+                ["review_confirmed", "Review confirmed"],
+              ]}
+            />
+            <Filter
               value={filters.source}
               onChange={(source) => setFilters({ ...filters, source })}
               label="All sources"
@@ -335,6 +369,7 @@ export default function CustomersPage() {
                 ["manual", "Manual"],
                 ["import", "CSV import"],
                 ["square", "Square POS"],
+                ["toast", "Toast POS"],
               ]}
             />
             <button className="rounded-lg bg-ink px-4 py-2.5 text-xs font-semibold text-white">
@@ -350,6 +385,7 @@ export default function CustomersPage() {
                 link: "",
                 sms: "",
                 source: "",
+                review_status: "",
               };
               setFilters(reset);
               void load(1, reset);
@@ -402,7 +438,9 @@ export default function CustomersPage() {
                     </p>
                   </div>
                   <div>
-                    {link ? (
+                    {customer.review_request_status === "review_confirmed" ? (
+                      <><span className="pill bg-emerald-50 text-emerald-800">Review confirmed</span><p className="mt-1 text-[10px] text-ink/40">Future requests stopped</p></>
+                    ) : link ? (
                       <>
                         <StatusPill clicked={Boolean(link.first_clicked_at)} />
                         <p className="mt-1 text-[10px] capitalize text-ink/40">
@@ -468,6 +506,7 @@ export default function CustomersPage() {
           busy={busy}
           onClose={() => setSelected(null)}
           onSuppression={() => void changeSuppression(selected)}
+          onReviewStatus={() => void changeReviewStatus(selected)}
           onResend={resend}
         />
       )}
@@ -497,12 +536,14 @@ function CustomerDialog({
   busy,
   onClose,
   onSuppression,
+  onReviewStatus,
   onResend,
 }: {
   customer: Customer;
   busy: boolean;
   onClose: () => void;
   onSuppression: () => void;
+  onReviewStatus: () => void;
   onResend: (link: ReviewLink, data: FormData) => void;
 }) {
   const latestLink = customer.review_links?.[0];
@@ -514,12 +555,13 @@ function CustomerDialog({
       wide
     >
       <div className="space-y-6 p-6">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           <Info label="Phone" value={customer.phone_e164 || "Not provided"} />
           <Info label="Email" value={customer.email || "Not provided"} />
           <Info label="SMS" value={consentState(customer)} />
+          <Info label="Review requests" value={customer.review_request_status === "review_confirmed" ? "Stopped · review confirmed" : "Eligible"} />
         </div>
-        <button
+        <div className="flex flex-wrap gap-2"><button
           disabled={busy}
           className={
             consentState(customer) === "Suppressed"
@@ -531,7 +573,8 @@ function CustomerDialog({
           {consentState(customer) === "Suppressed"
             ? "Allow SMS again"
             : "Suppress SMS"}
-        </button>
+        </button><button disabled={busy} className={customer.review_request_status === "review_confirmed" ? "button-secondary" : "rounded-lg border border-forest/20 px-4 py-2 text-xs font-semibold text-forest"} onClick={onReviewStatus}>{customer.review_request_status === "review_confirmed" ? "Allow future review requests" : "Mark review as confirmed"}</button></div>
+        <p className="rounded-xl bg-paper p-3 text-[11px] leading-5 text-ink/50">A link click does not prove a review was submitted. Mark a review confirmed only when the customer confirms it or your team can match it to a provider review.</p>
         <section>
           <h3 className="text-sm font-semibold">Visit history</h3>
           <div className="mt-3 overflow-hidden rounded-xl border border-ink/8">

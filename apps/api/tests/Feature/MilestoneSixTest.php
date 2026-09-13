@@ -75,6 +75,62 @@ class MilestoneSixTest extends TestCase
         $this->postJson('/api/v1/visits', $payload, $headers)->assertCreated()->assertJsonPath('data.automation_dispatches.0.reason_code', 'frequency_limited');
     }
 
+    public function test_confirmed_reviewer_is_skipped_on_every_future_visit(): void
+    {
+        [$owner, $business, $location, $customer, , $rule] = $this->fixture();
+        $customer->update([
+            'review_request_status' => 'review_confirmed',
+            'review_confirmed_at' => now()->subWeeks(3),
+            'review_confirmation_source' => 'customer_confirmed',
+        ]);
+
+        $this->actingAs($owner)->postJson('/api/v1/visits', [
+            'location_id' => $location->id,
+            'customer_id' => $customer->id,
+            'automation_rule_id' => $rule->id,
+            'completed_at' => now()->subMinute()->toIso8601String(),
+            'type' => 'service',
+        ], ['X-Business-ID' => $business->id])
+            ->assertCreated()
+            ->assertJsonPath('data.automation_dispatches.0.reason_code', 'review_already_confirmed');
+    }
+
+    public function test_automation_uses_business_delivery_hours_and_rejects_conflicting_follow_up_times(): void
+    {
+        [$owner, $business, $location, , $template, $rule] = $this->fixture();
+        $rule->delete();
+        $template->update(['location_id' => $location->id]);
+        $business->update([
+            'plan_code' => 'growth',
+            'messaging_preferences' => ['quiet_hours_start' => '21:00', 'quiet_hours_end' => '08:30'],
+        ]);
+        $headers = ['X-Business-ID' => $business->id];
+        $payload = [
+            'name' => 'Simple review journey',
+            'location_id' => $location->id,
+            'message_template_id' => $template->id,
+            'delay_minutes' => 60,
+            'frequency_limit_days' => 30,
+            'status' => 'active',
+            'follow_ups' => [[
+                'message_template_id' => $template->id,
+                'delay_minutes' => 2880,
+                'cancel_after_click' => true,
+            ]],
+        ];
+
+        $this->actingAs($owner)->postJson('/api/v1/automations', $payload, $headers)
+            ->assertCreated()
+            ->assertJsonPath('data.quiet_hours_start', '21:00')
+            ->assertJsonPath('data.quiet_hours_end', '08:30');
+
+        $payload['name'] = 'Conflicting journey';
+        $payload['follow_ups'][0]['delay_minutes'] = 30;
+        $this->postJson('/api/v1/automations', $payload, $headers)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('follow_ups.0.delay_minutes');
+    }
+
     public function test_manual_visit_rejects_cross_tenant_location_and_customer_ids(): void
     {
         [$ownerA, $businessA] = $this->fixture('Business A');

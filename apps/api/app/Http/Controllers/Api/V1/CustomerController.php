@@ -33,6 +33,7 @@ class CustomerController extends Controller
                     ->orWhere('phone_e164', 'like', "%{$search}%"));
             })
             ->when($request->string('status')->toString(), fn ($query, string $status) => $query->where('status', $status))
+            ->when($request->string('review_status')->toString(), fn ($query, string $status) => $query->where('review_request_status', $status))
             ->when($request->string('source')->toString(), fn ($query, string $source) => $query->where('source', $source))
             ->when($request->string('visit')->toString(), function ($query, string $filter): void {
                 match ($filter) {
@@ -144,6 +145,36 @@ class CustomerController extends Controller
         $auditor->record($request, 'customer.suppression_released', $entry, ['channel' => $entry->channel]);
 
         return response()->json(['data' => $entry->fresh()]);
+    }
+
+    public function reviewStatus(Request $request, string $customer, Auditor $auditor): JsonResponse
+    {
+        $model = $this->scoped($request, $customer);
+        $data = $request->validate([
+            'status' => ['required', Rule::in(['eligible', 'review_confirmed'])],
+            'source' => ['required_if:status,review_confirmed', Rule::in(['manual', 'customer_confirmed', 'google_business_profile', 'provider', 'other'])],
+            'reference' => ['nullable', 'string', 'max:255'],
+        ]);
+        $confirmed = $data['status'] === 'review_confirmed';
+        $model->update([
+            'review_request_status' => $data['status'],
+            'review_confirmed_at' => $confirmed ? now() : null,
+            'review_confirmation_source' => $confirmed ? $data['source'] : null,
+            'review_confirmation_reference' => $confirmed ? ($data['reference'] ?? null) : null,
+        ]);
+        if ($confirmed) {
+            $model->visits()->whereHas('dispatches', fn ($query) => $query->where('decision', 'scheduled'))
+                ->each(fn ($visit) => $visit->dispatches()->where('decision', 'scheduled')->update([
+                    'decision' => 'cancelled',
+                    'reason_code' => 'review_already_confirmed',
+                ]));
+        }
+        $auditor->record($request, 'customer.review_status_updated', $model, [
+            'status' => $data['status'],
+            'source' => $confirmed ? $data['source'] : null,
+        ]);
+
+        return response()->json(['data' => $model->fresh()]);
     }
 
     public function import(Request $request): JsonResponse

@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 export type PerspectiveTextConfig = {
   color?: string;
+  color_mode?: "solid" | "gradient";
+  gradient_start?: string;
+  gradient_end?: string;
   font_size?: number;
   min_font_size?: number;
   font_family?: string;
@@ -130,7 +133,10 @@ export function PerspectiveTextPreview({ config, text, imageWidth, imageHeight }
       transformOrigin: "0 0",
       alignItems: "center",
       justifyContent: config.align === "left" ? "flex-start" : config.align === "right" ? "flex-end" : "center",
-      color: config.color ?? "#17201b",
+      color: config.color_mode === "gradient" ? "transparent" : (config.color ?? "#17201b"),
+      backgroundImage: config.color_mode === "gradient" ? `linear-gradient(135deg, ${config.gradient_start ?? "#174d3b"}, ${config.gradient_end ?? "#7c3aed"})` : undefined,
+      backgroundClip: config.color_mode === "gradient" ? "text" : undefined,
+      WebkitBackgroundClip: config.color_mode === "gradient" ? "text" : undefined,
       fontFamily: `"${config.font_family ?? "Poppins"}"`,
       fontSize: render.fontSize,
       lineHeight: 1.08,
