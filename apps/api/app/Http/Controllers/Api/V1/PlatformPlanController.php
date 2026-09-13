@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
@@ -15,16 +16,52 @@ class PlatformPlanController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json(['data' => SubscriptionPlan::orderBy('monthly_price_minor')->get()]);
+        return response()->json(['data' => SubscriptionPlan::orderBy('sort_order')->orderBy('monthly_price_minor')->get()]);
+    }
+
+    public function store(Request $request, Auditor $auditor): JsonResponse
+    {
+        $data = $this->validated($request, true);
+        $model = SubscriptionPlan::create($data);
+        $auditor->record($request, 'subscription_plan.created', $model, ['code' => $model->code]);
+
+        return response()->json(['data' => $model], 201);
     }
 
     public function update(Request $request, string $plan, Auditor $auditor): JsonResponse
     {
         $model = SubscriptionPlan::findOrFail($plan);
-        $data = $request->validate([
-            'name' => ['sometimes', 'string', 'max:100'],
+        $data = $this->validated($request);
+        $model->update($data);
+        $auditor->record($request, 'subscription_plan.updated', $model, array_keys($data));
+
+        return response()->json(['data' => $model->fresh()]);
+    }
+
+    public function syncStripe(Request $request, string $plan, StripeGateway $stripe, Auditor $auditor): JsonResponse
+    {
+        $model = SubscriptionPlan::findOrFail($plan);
+        $model = $stripe->syncPlan($model);
+        $auditor->record($request, 'subscription_plan.stripe_synced', $model, ['stripe_product_id' => $model->stripe_product_id]);
+
+        return response()->json(['data' => $model]);
+    }
+
+    private function validated(Request $request, bool $creating = false): array
+    {
+        return $request->validate([
+            'code' => [$creating ? 'required' : 'sometimes', 'string', 'max:50', 'regex:/^[a-z0-9-]+$/', Rule::unique('subscription_plans', 'code')->ignore($request->route('plan'))],
+            'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:100'],
+            'description' => ['nullable', 'string', 'max:500'],
             'monthly_price_minor' => ['sometimes', 'integer', 'min:0'],
+            'annual_price_minor' => ['sometimes', 'integer', 'min:0'],
             'currency' => ['sometimes', 'string', 'size:3'],
+            'trial_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
+            'badge' => ['nullable', 'string', 'max:40'],
+            'is_featured' => ['sometimes', 'boolean'],
+            'sort_order' => ['sometimes', 'integer', 'min:0', 'max:1000'],
+            'features' => ['sometimes', 'array', 'max:30'],
+            'features.*' => ['string', 'max:120'],
             'location_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'template_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'automation_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
@@ -39,15 +76,11 @@ class PlatformPlanController extends Controller
             'estimated_sms_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
             'estimated_mms_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
             'estimated_whatsapp_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
-            'review_providers' => ['sometimes', 'array', 'min:1'],
+            'review_providers' => [$creating ? 'required' : 'sometimes', 'array', 'min:1'],
             'review_providers.*' => [Rule::in(['google', 'trustpilot', 'facebook', 'yelp', 'other'])],
             'allow_overage' => ['sometimes', 'boolean'],
-            'status' => ['sometimes', Rule::in(['active', 'archived'])],
+            'status' => ['sometimes', Rule::in(['draft', 'active', 'archived'])],
         ]);
-        $model->update($data);
-        $auditor->record($request, 'subscription_plan.updated', $model, array_keys($data));
-
-        return response()->json(['data' => $model->fresh()]);
     }
 
     public function usage(Request $request): JsonResponse

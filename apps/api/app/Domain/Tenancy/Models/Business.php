@@ -2,6 +2,7 @@
 
 namespace App\Domain\Tenancy\Models;
 
+use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Integrations\Models\PosIntegration;
 use App\Domain\Messaging\Models\MessagingConfiguration;
@@ -63,6 +64,11 @@ class Business extends Model
     public function messagingConfiguration(): HasOne
     {
         return $this->hasOne(MessagingConfiguration::class);
+    }
+
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(BusinessSubscription::class);
     }
 
     protected function casts(): array

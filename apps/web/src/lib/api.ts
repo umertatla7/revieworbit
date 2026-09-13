@@ -107,10 +107,13 @@ export async function api<T>(path: string, init: RequestInit = {}, withBusiness 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
     const first = Object.values(body.errors ?? {})[0]?.[0];
+    const isMediaRequest = path.includes("/media") || (path.includes("/templates/") && init.body instanceof FormData);
     const transportMessage = response.status === 413
       ? "The image is larger than the 20 MB upload limit. Please resize or compress it and try again."
-      : response.status >= 500
+      : response.status >= 500 && isMediaRequest
         ? "The server could not process this image. Please try a JPG, PNG, or WebP under 20 MB."
+        : response.status >= 500
+          ? "The service is temporarily unavailable. Please try again in a moment."
         : "The request could not be completed.";
     throw new ApiError(first ?? body.message ?? transportMessage, response.status, body.errors);
   }

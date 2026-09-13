@@ -66,4 +66,8 @@ return [
         'url' => env('WEB_URL', 'http://localhost:3000'),
     ],
 
+    'stripe' => [
+        'api_version' => env('STRIPE_API_VERSION', '2026-02-25.clover'),
+    ],
+
 ];

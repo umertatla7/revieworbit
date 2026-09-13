@@ -105,7 +105,7 @@ class PlatformBusinessController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:160'],
             'status' => ['sometimes', Rule::in(['active', 'inactive', 'suspended'])],
-            'plan_code' => ['sometimes', Rule::in(['basic', 'growth', 'pro'])],
+            'plan_code' => ['sometimes', Rule::exists('subscription_plans', 'code')->where('status', 'active')],
             'default_timezone' => ['sometimes', 'timezone'],
             'default_country' => ['sometimes', 'string', 'size:2'],
             'onboarding_status' => ['sometimes', Rule::in(['in_progress', 'completed'])],

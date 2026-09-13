@@ -14,7 +14,7 @@ class PlanEntitlements
 {
     public function for(Business $business): array
     {
-        $plan = SubscriptionPlan::where('code', $business->plan_code)->where('status', 'active')->first()
+        $plan = SubscriptionPlan::where('code', $business->plan_code)->first()
             ?? SubscriptionPlan::where('code', 'basic')->firstOrFail();
         $locations = $business->locations()->count();
         $templates = MessageTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
@@ -58,7 +58,7 @@ class PlanEntitlements
 
     public function plan(Business $business): SubscriptionPlan
     {
-        return SubscriptionPlan::where('code', $business->plan_code)->where('status', 'active')->first()
+        return SubscriptionPlan::where('code', $business->plan_code)->first()
             ?? SubscriptionPlan::where('code', 'basic')->firstOrFail();
     }
 }

@@ -86,7 +86,6 @@ const customerNavigation: NavigationGroup[] = [
         href: "/dashboard/billing",
         label: "Plan & billing",
         icon: "billing",
-        badge: "Soon",
       },
       {
         href: "/dashboard/settings",
