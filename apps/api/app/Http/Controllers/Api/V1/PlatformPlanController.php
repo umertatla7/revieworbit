@@ -22,6 +22,7 @@ class PlatformPlanController extends Controller
     public function store(Request $request, Auditor $auditor): JsonResponse
     {
         $data = $this->validated($request, true);
+        $data = array_merge($data, $this->inclusiveMessagingDefaults());
         $model = SubscriptionPlan::create($data);
         $auditor->record($request, 'subscription_plan.created', $model, ['code' => $model->code]);
 
@@ -32,6 +33,7 @@ class PlatformPlanController extends Controller
     {
         $model = SubscriptionPlan::findOrFail($plan);
         $data = $this->validated($request);
+        $data = array_merge($data, $this->inclusiveMessagingDefaults());
         $model->update($data);
         $auditor->record($request, 'subscription_plan.updated', $model, array_keys($data));
 
@@ -69,25 +71,38 @@ class PlatformPlanController extends Controller
             'media_template_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'review_destination_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'included_message_credits' => ['sometimes', 'integer', 'min:0'],
-            'overage_price_minor' => ['sometimes', 'integer', 'min:0'],
             'sms_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'mms_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'whatsapp_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
-            'estimated_sms_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
-            'estimated_mms_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
-            'estimated_whatsapp_provider_cost_minor' => ['sometimes', 'integer', 'min:0'],
             'review_providers' => [$creating ? 'required' : 'sometimes', 'array', 'min:1'],
             'review_providers.*' => [Rule::in(['google', 'trustpilot', 'facebook', 'yelp', 'other'])],
-            'allow_overage' => ['sometimes', 'boolean'],
             'status' => ['sometimes', Rule::in(['draft', 'active', 'archived'])],
         ]);
+    }
+
+    /**
+     * Messaging is included in the subscription package. These values are
+     * server-owned so the plan builder cannot accidentally enable usage fees.
+     */
+    private function inclusiveMessagingDefaults(): array
+    {
+        return [
+            'overage_price_minor' => 0,
+            'allow_overage' => false,
+            'sms_credit_units' => 1,
+            'mms_credit_units' => 1,
+            'whatsapp_credit_units' => 1,
+            'estimated_sms_provider_cost_minor' => 0,
+            'estimated_mms_provider_cost_minor' => 0,
+            'estimated_whatsapp_provider_cost_minor' => 0,
+        ];
     }
 
     public function usage(Request $request): JsonResponse
     {
         $from = $request->date('from')?->startOfDay() ?? now()->startOfMonth();
         $to = $request->date('to')?->endOfDay() ?? now()->endOfMonth();
-        $businesses = Business::query()->withCount(['locations', 'templates'])->orderBy('name')->get();
+        $businesses = Business::query()->orderBy('name')->get();
         $usage = $businesses->map(function (Business $business) use ($from, $to): array {
             $deliveries = MessageDelivery::where('business_id', $business->id)->whereBetween('created_at', [$from, $to]);
             $plan = SubscriptionPlan::where('code', $business->plan_code)->first();

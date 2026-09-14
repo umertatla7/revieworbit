@@ -47,6 +47,38 @@ class BillingTest extends TestCase
             ->assertCreated()->assertJsonPath('data.code', 'starter');
     }
 
+    public function test_plan_creation_enforces_inclusive_messaging_without_overage_fees(): void
+    {
+        $response = $this->actingAs($this->admin())->postJson('/api/v1/admin/plans', [
+            'code' => 'inclusive',
+            'name' => 'Inclusive',
+            'review_providers' => ['google'],
+            'included_message_credits' => 500,
+            'overage_price_minor' => 99,
+            'allow_overage' => true,
+            'estimated_sms_provider_cost_minor' => 4,
+            'estimated_mms_provider_cost_minor' => 8,
+        ])->assertCreated();
+
+        $response
+            ->assertJsonPath('data.overage_price_minor', 0)
+            ->assertJsonPath('data.allow_overage', false)
+            ->assertJsonPath('data.sms_credit_units', 1)
+            ->assertJsonPath('data.mms_credit_units', 1)
+            ->assertJsonPath('data.estimated_sms_provider_cost_minor', 0)
+            ->assertJsonPath('data.estimated_mms_provider_cost_minor', 0);
+    }
+
+    public function test_super_admin_can_load_usage_without_unrelated_model_relationships(): void
+    {
+        [, $business] = $this->owner('Usage');
+
+        $this->actingAs($this->admin())->getJson('/api/v1/admin/usage')
+            ->assertOk()
+            ->assertJsonPath('data.0.business_id', $business->id)
+            ->assertJsonPath('data.0.messages', 0);
+    }
+
     public function test_owner_can_start_stripe_checkout_but_another_tenant_cannot_access_billing(): void
     {
         [$ownerA, $businessA] = $this->owner('A');
