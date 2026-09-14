@@ -104,6 +104,13 @@ export async function api<T>(path: string, init: RequestInit = {}, withBusiness 
     throw new ApiError("Your admin support session expired. Start a new support session to continue.", 401);
   }
 
+  if (response.status === 401 && !authenticating && typeof window !== "undefined") {
+    stopSupportMode();
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    window.location.replace(`/login?expired=1&return_to=${encodeURIComponent(returnTo)}`);
+    throw new ApiError("Your session expired. Please sign in again.", 401);
+  }
+
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
     const first = Object.values(body.errors ?? {})[0]?.[0];

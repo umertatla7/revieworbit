@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Billing\Models\PlatformStripeSetting;
 use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Enums\PlatformRole;
@@ -91,6 +92,28 @@ class BillingTest extends TestCase
         $this->assertSame('pro', $business->fresh()->plan_code);
         $this->assertDatabaseCount('stripe_webhook_events', 1);
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $business->id, 'stripe_subscription_id' => 'sub_test', 'status' => 'active']);
+    }
+
+    public function test_billing_page_returns_live_masked_payment_and_invoice_details_from_stripe(): void
+    {
+        [$owner, $business] = $this->owner('Live billing');
+        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan->update(['stripe_monthly_price_id' => 'price_growth_month']);
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        BusinessSubscription::create(['business_id' => $business->id, 'subscription_plan_id' => $plan->id, 'stripe_customer_id' => 'cus_live', 'stripe_subscription_id' => 'sub_live', 'status' => 'active']);
+        Http::fake([
+            'api.stripe.com/v1/customers/cus_live*' => Http::response(['id' => 'cus_live', 'invoice_settings' => ['default_payment_method' => 'pm_live']]),
+            'api.stripe.com/v1/payment_methods*' => Http::response(['data' => [['id' => 'pm_live', 'card' => ['brand' => 'visa', 'last4' => '4242', 'exp_month' => 12, 'exp_year' => 2030]]]]),
+            'api.stripe.com/v1/invoices*' => Http::response(['data' => [['id' => 'in_live', 'number' => 'RO-001', 'status' => 'paid', 'amount_due' => 4900, 'amount_paid' => 4900, 'currency' => 'usd', 'created' => time()]]]),
+            'api.stripe.com/v1/subscriptions/sub_live*' => Http::response(['id' => 'sub_live', 'status' => 'active', 'customer' => 'cus_live', 'items' => ['data' => [['price' => ['id' => 'price_growth_month', 'recurring' => ['interval' => 'month']], 'current_period_end' => time() + 2592000]]]]),
+        ]);
+
+        $this->actingAs($owner)->getJson('/api/v1/billing', ['X-Business-ID' => $business->id])
+            ->assertOk()
+            ->assertJsonPath('data.subscription.plan.code', 'growth')
+            ->assertJsonPath('data.payment_methods.0.last4', '4242')
+            ->assertJsonPath('data.payment_methods.0.is_default', true)
+            ->assertJsonPath('data.invoices.0.number', 'RO-001');
     }
 
     private function admin(): User

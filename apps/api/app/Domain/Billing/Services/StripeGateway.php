@@ -7,6 +7,7 @@ use App\Domain\Billing\Models\PlatformStripeSetting;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
@@ -109,6 +110,61 @@ class StripeGateway
         }
 
         return $this->request($setting)->post('/v1/billing_portal/sessions', $payload)->throw()->json('url');
+    }
+
+    public function customerBillingSnapshot(BusinessSubscription $subscription): array
+    {
+        $setting = $this->configuration();
+        if (! $subscription->stripe_customer_id) {
+            return ['subscription' => null, 'payment_methods' => [], 'invoices' => []];
+        }
+        $customer = $this->request($setting)->get('/v1/customers/'.$subscription->stripe_customer_id, [
+            'expand' => ['invoice_settings.default_payment_method'],
+        ])->throw()->json();
+        $default = data_get($customer, 'invoice_settings.default_payment_method');
+        $defaultId = is_array($default) ? ($default['id'] ?? null) : $default;
+        $methods = $this->request($setting)->get('/v1/payment_methods', [
+            'customer' => $subscription->stripe_customer_id, 'type' => 'card', 'limit' => 10,
+        ])->throw()->json('data', []);
+        $invoices = $this->request($setting)->get('/v1/invoices', [
+            'customer' => $subscription->stripe_customer_id, 'limit' => 12,
+        ])->throw()->json('data', []);
+        $remoteSubscription = $subscription->stripe_subscription_id
+            ? $this->request($setting)->get('/v1/subscriptions/'.$subscription->stripe_subscription_id)->throw()->json()
+            : null;
+
+        return [
+            'subscription' => $remoteSubscription ? $this->subscriptionSnapshot($remoteSubscription) : null,
+            'payment_methods' => collect($methods)->map(fn (array $method): array => [
+                'id' => $method['id'], 'brand' => data_get($method, 'card.brand'), 'last4' => data_get($method, 'card.last4'),
+                'exp_month' => data_get($method, 'card.exp_month'), 'exp_year' => data_get($method, 'card.exp_year'),
+                'is_default' => $method['id'] === $defaultId,
+            ])->values()->all(),
+            'invoices' => collect($invoices)->map(fn (array $invoice): array => [
+                'id' => $invoice['id'], 'number' => $invoice['number'] ?? null, 'status' => $invoice['status'] ?? null,
+                'amount_due_minor' => $invoice['amount_due'] ?? 0, 'amount_paid_minor' => $invoice['amount_paid'] ?? 0,
+                'currency' => strtoupper($invoice['currency'] ?? 'USD'), 'hosted_invoice_url' => $invoice['hosted_invoice_url'] ?? null,
+                'invoice_pdf_url' => $invoice['invoice_pdf'] ?? null, 'created_at' => isset($invoice['created']) ? Carbon::createFromTimestampUTC($invoice['created']) : null,
+            ])->values()->all(),
+        ];
+    }
+
+    private function subscriptionSnapshot(array $subscription): array
+    {
+        $priceId = data_get($subscription, 'items.data.0.price.id');
+        $plan = SubscriptionPlan::where('stripe_monthly_price_id', $priceId)->orWhere('stripe_annual_price_id', $priceId)->first();
+
+        return [
+            'status' => $subscription['status'] ?? 'unknown', 'billing_interval' => data_get($subscription, 'items.data.0.price.recurring.interval', 'month'),
+            'trial_ends_at' => $this->timestamp($subscription['trial_end'] ?? null),
+            'current_period_ends_at' => $this->timestamp($subscription['current_period_end'] ?? data_get($subscription, 'items.data.0.current_period_end')),
+            'cancel_at_period_end' => (bool) ($subscription['cancel_at_period_end'] ?? false), 'plan' => $plan,
+        ];
+    }
+
+    private function timestamp(mixed $value): ?string
+    {
+        return $value ? Carbon::createFromTimestampUTC((int) $value)->toIso8601String() : null;
     }
 
     private function ensurePrice(PlatformStripeSetting $setting, ?string $currentId, string $productId, int $amount, string $currency, string $interval, SubscriptionPlan $plan): string

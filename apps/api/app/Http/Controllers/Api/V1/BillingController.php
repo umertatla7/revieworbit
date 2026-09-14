@@ -15,12 +15,26 @@ use Illuminate\Validation\Rule;
 
 class BillingController extends Controller
 {
-    public function show(Request $request): JsonResponse
+    public function show(Request $request, StripeGateway $stripe): JsonResponse
     {
         $business = $request->attributes->get('business');
         $subscription = BusinessSubscription::with('plan')->where('business_id', $business->id)->first();
         $plans = SubscriptionPlan::where('status', 'active')->orderBy('sort_order')->orderBy('monthly_price_minor')->get();
         $invoices = BillingInvoice::where('business_id', $business->id)->latest()->limit(12)->get();
+        $paymentMethods = [];
+        $stripeError = null;
+        if ($subscription?->stripe_customer_id && PlatformStripeSetting::where('status', 'verified')->exists()) {
+            try {
+                $snapshot = $stripe->customerBillingSnapshot($subscription);
+                $subscription = $snapshot['subscription'] ? (object) $snapshot['subscription'] : $subscription;
+                $paymentMethods = $snapshot['payment_methods'];
+                if ($snapshot['invoices'] !== []) {
+                    $invoices = $snapshot['invoices'];
+                }
+            } catch (\Throwable) {
+                $stripeError = 'Live billing details are temporarily unavailable. Your saved subscription state is shown.';
+            }
+        }
 
         return response()->json(['data' => [
             'stripe_ready' => PlatformStripeSetting::where('status', 'verified')->whereNotNull('webhook_secret')->exists(),
@@ -28,6 +42,8 @@ class BillingController extends Controller
             'subscription' => $subscription,
             'plans' => $plans,
             'invoices' => $invoices,
+            'payment_methods' => $paymentMethods,
+            'stripe_error' => $stripeError,
         ]]);
     }
 

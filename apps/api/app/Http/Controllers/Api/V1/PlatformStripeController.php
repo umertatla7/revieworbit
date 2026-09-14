@@ -80,6 +80,8 @@ class PlatformStripeController extends Controller
             'mode' => $setting?->mode ?? 'test', 'status' => $setting?->status ?? 'not_configured',
             'account_id' => $setting?->account_id, 'account_name' => $setting?->account_name,
             'portal_configured' => (bool) $setting?->portal_configuration_id,
+            'secret_key_hint' => $setting?->secret_key ? '••••'.substr($setting->secret_key, -4) : null,
+            'webhook_secret_hint' => $setting?->webhook_secret ? '••••'.substr($setting->webhook_secret, -4) : null,
             'verified_at' => $setting?->verified_at, 'last_health_check_at' => $setting?->last_health_check_at,
             'last_error' => $setting?->last_error, 'webhook_url' => rtrim((string) config('app.url'), '/').'/api/v1/webhooks/stripe',
         ];
