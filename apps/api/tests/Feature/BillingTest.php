@@ -89,16 +89,56 @@ class BillingTest extends TestCase
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
         Http::fake([
             'api.stripe.com/v1/customers' => Http::response(['id' => 'cus_test_a']),
-            'api.stripe.com/v1/checkout/sessions' => Http::response(['url' => 'https://checkout.stripe.com/c/pay/test']),
+            'api.stripe.com/v1/checkout/sessions' => Http::response(['client_secret' => 'cs_test_secret_checkout']),
         ]);
 
         $headersA = ['X-Business-ID' => $businessA->id];
         $this->actingAs($ownerA)->postJson('/api/v1/billing/checkout', ['plan_id' => $plan->id, 'interval' => 'month'], $headersA)
-            ->assertOk()->assertJsonPath('data.url', 'https://checkout.stripe.com/c/pay/test');
+            ->assertOk()->assertJsonPath('data.client_secret', 'cs_test_secret_checkout')->assertJsonPath('data.publishable_key', 'pk_test_x');
+        Http::assertSent(fn (StripeRequest $request): bool => str_ends_with($request->url(), '/v1/checkout/sessions')
+            && data_get($request->data(), 'ui_mode') === 'embedded'
+            && data_get($request->data(), 'payment_method_collection') === 'always');
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessA->id, 'stripe_customer_id' => 'cus_test_a']);
 
         $this->actingAs($ownerB)->getJson('/api/v1/billing', ['X-Business-ID' => $businessA->id])->assertNotFound();
         $this->getJson('/api/v1/billing', ['X-Business-ID' => $businessB->id])->assertOk()->assertJsonPath('data.current_plan_code', 'basic');
+    }
+
+    public function test_public_plans_are_available_for_signup_without_exposing_stripe_ids(): void
+    {
+        SubscriptionPlan::where('code', 'basic')->update(['stripe_product_id' => 'prod_private', 'stripe_monthly_price_id' => 'price_private']);
+
+        $this->getJson('/api/v1/plans')->assertOk()
+            ->assertJsonPath('data.0.code', 'basic')
+            ->assertJsonMissing(['stripe_product_id' => 'prod_private'])
+            ->assertJsonMissing(['stripe_monthly_price_id' => 'price_private']);
+    }
+
+    public function test_owner_changes_an_existing_subscription_in_app_with_proration(): void
+    {
+        [$owner, $business] = $this->owner('Plan change');
+        $plan = SubscriptionPlan::where('code', 'pro')->firstOrFail();
+        $plan->update(['stripe_monthly_price_id' => 'price_pro_month']);
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        BusinessSubscription::create(['business_id' => $business->id, 'stripe_customer_id' => 'cus_change', 'stripe_subscription_id' => 'sub_change', 'status' => 'active']);
+        Http::fake([
+            'api.stripe.com/v1/subscriptions/sub_change' => Http::sequence()
+                ->push(['id' => 'sub_change', 'items' => ['data' => [['id' => 'si_current', 'price' => ['id' => 'price_old']]]]])
+                ->push([
+                    'id' => 'sub_change', 'status' => 'active',
+                    'items' => ['data' => [[
+                        'id' => 'si_current',
+                        'price' => ['id' => 'price_pro_month', 'recurring' => ['interval' => 'month']],
+                    ]]],
+                ]),
+        ]);
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/checkout', ['plan_id' => $plan->id, 'interval' => 'month'], ['X-Business-ID' => $business->id])
+            ->assertOk()->assertJsonPath('data.subscription.plan.code', 'pro');
+        Http::assertSent(fn (StripeRequest $request): bool => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/v1/subscriptions/sub_change')
+            && data_get($request->data(), 'items.0.price') === 'price_pro_month'
+            && data_get($request->data(), 'proration_behavior') === 'create_prorations');
     }
 
     public function test_plan_sync_sends_stripe_compatible_boolean_values_and_publishes_both_prices(): void
@@ -149,6 +189,39 @@ class BillingTest extends TestCase
                 && data_get($request->data(), 'flow_data.type') === 'payment_method_update'
                 && data_get($request->data(), 'customer') === 'cus_payment';
         });
+    }
+
+    public function test_embedded_payment_method_setup_preserves_the_existing_subscription_and_sets_the_default(): void
+    {
+        [$owner, $business] = $this->owner('Embedded payment');
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_signing', 'mode' => 'test', 'status' => 'verified']);
+        BusinessSubscription::create(['business_id' => $business->id, 'stripe_customer_id' => 'cus_embedded', 'stripe_subscription_id' => 'sub_keep', 'status' => 'active']);
+        Http::fake([
+            'api.stripe.com/v1/checkout/sessions' => Http::response(['client_secret' => 'cs_test_secret_setup']),
+            'api.stripe.com/v1/setup_intents/seti_embedded' => Http::response(['id' => 'seti_embedded', 'customer' => 'cus_embedded', 'payment_method' => 'pm_new', 'status' => 'succeeded']),
+            'api.stripe.com/v1/customers/cus_embedded' => Http::response(['id' => 'cus_embedded']),
+        ]);
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/payment-method', [], ['X-Business-ID' => $business->id])
+            ->assertOk()->assertJsonPath('data.client_secret', 'cs_test_secret_setup');
+
+        $timestamp = time();
+        $payload = json_encode([
+            'id' => 'evt_setup_completed', 'type' => 'checkout.session.completed', 'livemode' => false,
+            'data' => ['object' => [
+                'mode' => 'setup', 'customer' => 'cus_embedded', 'subscription' => null,
+                'setup_intent' => 'seti_embedded', 'metadata' => ['business_id' => $business->id, 'purpose' => 'default_payment_method'],
+            ]],
+        ], JSON_THROW_ON_ERROR);
+        $signature = hash_hmac('sha256', $timestamp.'.'.$payload, 'whsec_signing');
+        $this->call('POST', '/api/v1/webhooks/stripe', [], [], [], $this->transformHeadersToServerVars([
+            'Stripe-Signature' => "t={$timestamp},v1={$signature}", 'Content-Type' => 'application/json',
+        ]), $payload)->assertOk();
+
+        $this->assertDatabaseHas('business_subscriptions', ['business_id' => $business->id, 'stripe_subscription_id' => 'sub_keep']);
+        Http::assertSent(fn (StripeRequest $request): bool => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/v1/customers/cus_embedded')
+            && data_get($request->data(), 'invoice_settings.default_payment_method') === 'pm_new');
     }
 
     public function test_admin_support_can_open_an_audited_payment_method_flow_without_an_existing_stripe_customer(): void

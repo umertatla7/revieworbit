@@ -1,6 +1,6 @@
 # Stripe billing
 
-ReviewOrbit uses one platform Stripe account. Each tenant maps to a Stripe Customer and at most one active Stripe Subscription. Card details are collected and managed only by Stripe Checkout and the Stripe-hosted Customer Portal; ReviewOrbit never receives or stores card data.
+ReviewOrbit uses one platform Stripe account. Each tenant maps to a Stripe Customer and at most one active Stripe Subscription. Card details are collected by Stripe's embedded Checkout iframe; ReviewOrbit never receives or stores card data.
 
 ## Configuration
 
@@ -23,7 +23,9 @@ Copy the endpoint signing secret into ReviewOrbit. Requests are verified against
 
 ## Customer lifecycle
 
-New subscribers use Stripe Checkout. A plan's configured trial is offered only when the tenant has never started a Stripe trial or subscription. Existing subscribers use a Customer Portal deep link to confirm a plan change. The customer billing screen has Overview, Plans, Payment methods, and Invoices tabs. Payment methods are masked, invoices are retrieved from Stripe, and the dedicated **Add/Change payment method** action opens Stripe's `payment_method_update` portal flow. General portal access supports subscription management, payment-method changes, invoices, cancellation, and other options enabled in the Stripe Portal configuration. Stripe recommends synchronizing access from subscription webhooks, which ReviewOrbit does: <https://docs.stripe.com/customer-management/integrate-customer-portal>. Stripe documents the payment-method deep-link flow here: <https://docs.stripe.com/customer-management/portal-deep-links>.
+New subscribers use Stripe Embedded Checkout inside ReviewOrbit. `payment_method_collection=always` ensures a card is collected even when a free trial applies. Existing subscribers confirm an upgrade or downgrade in ReviewOrbit; the API replaces the Stripe subscription item price and asks Stripe to calculate prorations. The customer billing screen has Overview, Plans, Payment methods, and Invoices tabs. The assigned plan has a clear **Current plan** state, while alternatives are labeled **Upgrade** or **Downgrade** based on price. Payment methods are masked, invoices are retrieved from Stripe, and **Add/Change payment method** uses an embedded Stripe setup session. The setup-completed webhook makes the new card the invoice default without exposing card data to ReviewOrbit. General Customer Portal access remains available for cancellation and exceptional account servicing.
+
+Public signup is a short three-step flow: business owner details, plan selection, and embedded Stripe payment. The workspace is provisioned before Checkout so the Stripe Customer and subscription are always linked to a tenant. An abandoned checkout leaves billing inactive and can be resumed from Plan & billing. Trials require a payment method and Stripe applies the configured charge only after the trial.
 
 The Stripe webhook is authoritative for subscription status, current plan, billing interval, trial dates, renewal dates, cancellation state, and invoices. `trialing`, `active`, and `past_due` subscriptions retain plan entitlements; payment recovery policy remains configured in Stripe. Every business also has a local plan association so manually assigned and test plans use the correct entitlements before paid checkout.
 

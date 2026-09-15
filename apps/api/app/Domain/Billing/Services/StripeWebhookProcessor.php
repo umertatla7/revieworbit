@@ -10,6 +10,8 @@ use Illuminate\Support\Carbon;
 
 class StripeWebhookProcessor
 {
+    public function __construct(private readonly StripeGateway $stripe) {}
+
     public function process(array $event): void
     {
         $object = data_get($event, 'data.object', []);
@@ -27,10 +29,18 @@ class StripeWebhookProcessor
         if (! $businessId || ! Business::whereKey($businessId)->exists()) {
             return;
         }
-        BusinessSubscription::updateOrCreate(['business_id' => $businessId], [
-            'stripe_customer_id' => $this->id($object['customer'] ?? null),
-            'stripe_subscription_id' => $this->id($object['subscription'] ?? null),
-        ]);
+        $values = ['stripe_customer_id' => $this->id($object['customer'] ?? null)];
+        if ($subscriptionId = $this->id($object['subscription'] ?? null)) {
+            $values['stripe_subscription_id'] = $subscriptionId;
+        }
+        BusinessSubscription::updateOrCreate(['business_id' => $businessId], $values);
+        if (($object['mode'] ?? null) === 'setup' && data_get($object, 'metadata.purpose') === 'default_payment_method') {
+            $customerId = $this->id($object['customer'] ?? null);
+            $setupIntentId = $this->id($object['setup_intent'] ?? null);
+            if ($customerId && $setupIntentId) {
+                $this->stripe->applySetupIntentDefault($customerId, $setupIntentId);
+            }
+        }
     }
 
     private function subscription(array $object): void

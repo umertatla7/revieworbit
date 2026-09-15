@@ -9,6 +9,7 @@ use App\Domain\Tenancy\Models\AdminSupportSession;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\PlatformUserRole;
+use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,6 +59,23 @@ class PlatformAndOnboardingTest extends TestCase
             ->assertJsonPath('data.checks.integration', true);
         $this->assertDatabaseHas('businesses', ['id' => $businessId, 'industry' => 'beauty_wellness', 'phone' => '+13125550123']);
         $this->assertDatabaseHas('locations', ['business_id' => $businessId, 'name' => 'Main Studio']);
+    }
+
+    public function test_customer_signup_assigns_the_selected_plan_and_keeps_location_setup_short(): void
+    {
+        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $response = $this->withHeader('Origin', 'https://revieworbit.test')->postJson('/api/v1/auth/register', [
+            'name' => 'Jamie Owner', 'email' => 'jamie@example.com',
+            'password' => 'ReviewOrbit123!', 'password_confirmation' => 'ReviewOrbit123!',
+            'business_name' => 'Jamie Studio', 'industry' => 'beauty_wellness',
+            'business_phone' => '+13125550199', 'country' => 'US',
+            'timezone' => 'America/Chicago', 'plan_id' => $plan->id,
+        ])->assertCreated();
+
+        $businessId = $response->json('data.businesses.0.id');
+        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'plan_code' => 'growth']);
+        $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessId, 'subscription_plan_id' => $plan->id]);
+        $this->assertDatabaseHas('locations', ['business_id' => $businessId, 'name' => 'Main location']);
     }
 
     public function test_business_owner_cannot_access_platform_customer_directory(): void

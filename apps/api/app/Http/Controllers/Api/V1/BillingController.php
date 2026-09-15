@@ -15,6 +15,18 @@ use Illuminate\Validation\Rule;
 
 class BillingController extends Controller
 {
+    public function plans(): JsonResponse
+    {
+        return response()->json(['data' => SubscriptionPlan::where('status', 'active')
+            ->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
+            ->makeHidden([
+                'stripe_product_id', 'stripe_monthly_price_id', 'stripe_annual_price_id',
+                'overage_price_minor', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
+                'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
+                'estimated_whatsapp_provider_cost_minor', 'allow_overage',
+            ])]);
+    }
+
     public function show(Request $request, StripeGateway $stripe): JsonResponse
     {
         $business = $request->attributes->get('business');
@@ -90,10 +102,33 @@ class BillingController extends Controller
         $business = $request->attributes->get('business');
         $plan = SubscriptionPlan::findOrFail($data['plan_id']);
         $existing = BusinessSubscription::where('business_id', $business->id)->whereNotNull('stripe_subscription_id')->whereIn('status', ['trialing', 'active', 'past_due'])->first();
-        $url = $existing ? $stripe->portal($business, $plan, $data['interval']) : $stripe->checkout($business, $plan, $data['interval']);
+        if ($existing) {
+            $changed = $stripe->changeSubscription($business, $plan, $data['interval']);
+            if (data_get($changed, 'plan.id') === $plan->id) {
+                $existing->update([
+                    'subscription_plan_id' => $plan->id,
+                    'stripe_price_id' => $data['interval'] === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id,
+                    'billing_interval' => $data['interval'],
+                ]);
+                $business->update(['plan_code' => $plan->code]);
+            }
+            $session = ['subscription' => $changed];
+        } else {
+            $session = $stripe->checkout($business, $plan, $data['interval']);
+        }
         $auditor->record($request, $existing ? 'billing.plan_change_started' : 'billing.checkout_started', $business, ['plan_code' => $plan->code, 'interval' => $data['interval']]);
 
-        return response()->json(['data' => ['url' => $url]]);
+        return response()->json(['data' => $session]);
+    }
+
+    public function paymentMethod(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
+    {
+        $this->ensureBillingManager($request);
+        $business = $request->attributes->get('business');
+        $session = $stripe->paymentMethodSetup($business);
+        $auditor->record($request, 'billing.payment_method_setup_started', $business);
+
+        return response()->json(['data' => $session]);
     }
 
     public function portal(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse

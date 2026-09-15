@@ -51,7 +51,8 @@ class StripeGateway
         }
     }
 
-    public function checkout(Business $business, SubscriptionPlan $plan, string $interval): string
+    /** @return array{client_secret: string, publishable_key: string} */
+    public function checkout(Business $business, SubscriptionPlan $plan, string $interval): array
     {
         try {
             $setting = $this->configuration();
@@ -69,9 +70,10 @@ class StripeGateway
             }
             $session = $this->request($setting)->post('/v1/checkout/sessions', [
                 'mode' => 'subscription', 'customer' => $customerId,
+                'ui_mode' => 'embedded',
                 'line_items' => [['price' => $priceId, 'quantity' => 1]],
-                'success_url' => $web.'/dashboard/billing?checkout=success',
-                'cancel_url' => $web.'/dashboard/billing?checkout=cancelled',
+                'return_url' => $web.'/dashboard/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}',
+                'payment_method_collection' => 'always',
                 'allow_promotion_codes' => 'true',
                 'billing_address_collection' => 'auto',
                 'client_reference_id' => $business->id,
@@ -79,10 +81,76 @@ class StripeGateway
                 'subscription_data' => $subscriptionData,
             ])->throw()->json();
 
-            return $session['url'];
+            return ['client_secret' => $session['client_secret'], 'publishable_key' => $setting->publishable_key];
         } catch (RequestException $exception) {
             $this->throwStripeValidation($exception, 'Stripe Checkout could not be opened. Please try again.');
         }
+    }
+
+    /** @return array{client_secret: string, publishable_key: string} */
+    public function paymentMethodSetup(Business $business): array
+    {
+        try {
+            $setting = $this->configuration();
+            $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
+            $customerId = $this->ensureCustomer($setting, $business, $subscription);
+            $web = rtrim((string) config('services.frontend.url'), '/');
+            $session = $this->request($setting)->post('/v1/checkout/sessions', [
+                'mode' => 'setup', 'customer' => $customerId, 'ui_mode' => 'embedded',
+                'payment_method_types' => ['card'],
+                'return_url' => $web.'/dashboard/billing?payment=updated&session_id={CHECKOUT_SESSION_ID}',
+                'client_reference_id' => $business->id,
+                'metadata' => ['business_id' => $business->id, 'purpose' => 'default_payment_method'],
+            ])->throw()->json();
+
+            return ['client_secret' => $session['client_secret'], 'publishable_key' => $setting->publishable_key];
+        } catch (RequestException $exception) {
+            $this->throwStripeValidation($exception, 'Stripe could not open the secure card form. Please try again.');
+        }
+    }
+
+    public function changeSubscription(Business $business, SubscriptionPlan $plan, string $interval): array
+    {
+        try {
+            $setting = $this->configuration();
+            $subscription = BusinessSubscription::where('business_id', $business->id)->firstOrFail();
+            if (! $subscription->stripe_subscription_id) {
+                throw ValidationException::withMessages(['subscription' => ['No active Stripe subscription was found.']]);
+            }
+            $priceId = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
+            if (! $priceId) {
+                throw ValidationException::withMessages(['plan' => ['This billing interval is not available.']]);
+            }
+            $remote = $this->request($setting)->get('/v1/subscriptions/'.$subscription->stripe_subscription_id)->throw()->json();
+            $itemId = data_get($remote, 'items.data.0.id');
+            if (! $itemId) {
+                throw ValidationException::withMessages(['subscription' => ['Stripe could not identify the current subscription item.']]);
+            }
+            $updated = $this->request($setting)->post('/v1/subscriptions/'.$subscription->stripe_subscription_id, [
+                'items' => [['id' => $itemId, 'price' => $priceId, 'quantity' => 1]],
+                'proration_behavior' => 'create_prorations',
+                'payment_behavior' => 'error_if_incomplete',
+                'metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id],
+            ])->throw()->json();
+
+            return $this->subscriptionSnapshot($updated);
+        } catch (RequestException $exception) {
+            $this->throwStripeValidation($exception, 'Stripe could not change the subscription. Please try again.');
+        }
+    }
+
+    public function applySetupIntentDefault(string $customerId, string $setupIntentId): void
+    {
+        $setting = $this->configuration();
+        $intent = $this->request($setting)->get('/v1/setup_intents/'.$setupIntentId)->throw()->json();
+        $intentCustomer = $this->id($intent['customer'] ?? null);
+        $paymentMethodId = $this->id($intent['payment_method'] ?? null);
+        if ($intentCustomer !== $customerId || ! $paymentMethodId || ($intent['status'] ?? null) !== 'succeeded') {
+            throw ValidationException::withMessages(['payment_method' => ['Stripe did not return a completed payment method setup.']]);
+        }
+        $this->request($setting)->post('/v1/customers/'.$customerId, [
+            'invoice_settings' => ['default_payment_method' => $paymentMethodId],
+        ])->throw();
     }
 
     public function portal(Business $business, ?SubscriptionPlan $plan = null, ?string $interval = null, ?string $flow = null): string
@@ -175,6 +243,11 @@ class StripeGateway
     private function timestamp(mixed $value): ?string
     {
         return $value ? Carbon::createFromTimestampUTC((int) $value)->toIso8601String() : null;
+    }
+
+    private function id(mixed $value): ?string
+    {
+        return is_array($value) ? ($value['id'] ?? null) : $value;
     }
 
     private function ensurePrice(PlatformStripeSetting $setting, ?string $currentId, string $productId, int $amount, string $currency, string $interval, SubscriptionPlan $plan): string

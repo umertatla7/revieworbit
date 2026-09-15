@@ -46,6 +46,7 @@ class BusinessProvisioner
                 'website_url' => $data['website_url'] ?? null,
                 'account_notes' => $data['account_notes'] ?? null,
                 'operation_mode' => $data['operation_mode'],
+                'plan_code' => $data['plan_code'] ?? 'basic',
                 'messaging_preferences' => [
                     'channel' => $data['preferred_channel'],
                     'quiet_hours_start' => $data['quiet_hours_start'],
@@ -57,7 +58,7 @@ class BusinessProvisioner
             BusinessUser::create(['business_id' => $business->id, 'user_id' => $owner->id, 'role' => BusinessRole::Owner]);
             BusinessSubscription::create([
                 'business_id' => $business->id,
-                'subscription_plan_id' => SubscriptionPlan::where('code', $business->plan_code)->value('id'),
+                'subscription_plan_id' => SubscriptionPlan::where('code', $data['plan_code'] ?? $business->plan_code)->value('id'),
                 'status' => 'none',
             ]);
             $location = $business->locations()->create([

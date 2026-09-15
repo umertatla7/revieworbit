@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Tenancy\Models\BusinessUser;
+use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Domain\Tenancy\Services\BusinessProvisioner;
 use App\Http\Controllers\Controller;
 use App\Models\User;
@@ -29,15 +30,20 @@ class AuthController extends Controller
             'industry' => ['required', Rule::in(['automotive', 'beauty_wellness', 'dental', 'healthcare', 'home_services', 'hospitality', 'professional_services', 'restaurant', 'retail', 'other'])],
             'business_phone' => ['required', 'regex:/^\+[1-9][0-9]{7,14}$/'],
             'website_url' => ['nullable', 'url:http,https', 'max:2048'],
-            'location_name' => ['required', 'string', 'max:160'],
-            'address_line1' => ['required', 'string', 'max:180'],
+            'location_name' => ['nullable', 'string', 'max:160'],
+            'address_line1' => ['nullable', 'string', 'max:180'],
             'address_line2' => ['nullable', 'string', 'max:180'],
-            'city' => ['required', 'string', 'max:120'],
-            'region' => ['required', 'string', 'max:120'],
-            'postal_code' => ['required', 'string', 'max:24'],
+            'city' => ['nullable', 'string', 'max:120'],
+            'region' => ['nullable', 'string', 'max:120'],
+            'postal_code' => ['nullable', 'string', 'max:24'],
             'country' => ['required', 'string', 'size:2'],
             'timezone' => ['required', 'timezone'],
+            'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where('status', 'active')],
         ]);
+
+        $plan = isset($data['plan_id'])
+            ? SubscriptionPlan::findOrFail($data['plan_id'])
+            : SubscriptionPlan::where('code', 'basic')->firstOrFail();
 
         $result = $provisioner->provision([
             ...$data,
@@ -50,6 +56,12 @@ class AuthController extends Controller
             'location_phone' => $data['business_phone'],
             'operation_mode' => 'manual',
             'preferred_channel' => 'sms',
+            'plan_code' => $plan->code,
+            'location_name' => $data['location_name'] ?? 'Main location',
+            'address_line1' => $data['address_line1'] ?? '',
+            'city' => $data['city'] ?? '',
+            'region' => $data['region'] ?? '',
+            'postal_code' => $data['postal_code'] ?? '',
             'quiet_hours_start' => '20:00',
             'quiet_hours_end' => '09:00',
         ]);

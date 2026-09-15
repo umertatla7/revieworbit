@@ -57,6 +57,7 @@ Route::prefix('api/v1')->group(function (): void {
     Route::post('/auth/mobile/login', [AuthController::class, 'mobileLogin'])->middleware('throttle:5,1');
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
+    Route::get('/plans', [BillingController::class, 'plans'])->middleware('throttle:60,1');
     Route::post('/integrations/generic/events', [GenericEventController::class, 'ingest'])->middleware(['integration.key', 'throttle:120,1']);
     Route::post('/webhooks/generic', [GenericEventController::class, 'webhook'])->middleware('throttle:120,1');
     Route::post('/webhooks/twilio/status', [TwilioWebhookController::class, 'status'])->middleware('throttle:600,1');
@@ -156,6 +157,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/pos-integrations/toast/connections/{connection}/sync', [ToastIntegrationController::class, 'sync']);
                 Route::put('/messaging-configuration', [MessagingConfigurationController::class, 'update']);
                 Route::post('/billing/checkout', [BillingController::class, 'checkout'])->middleware('throttle:10,1');
+                Route::post('/billing/payment-method', [BillingController::class, 'paymentMethod'])->middleware('throttle:10,1');
                 Route::post('/billing/portal', [BillingController::class, 'portal'])->middleware('throttle:10,1');
                 Route::post('/messaging-configuration/verify', [MessagingConfigurationController::class, 'verify']);
 
