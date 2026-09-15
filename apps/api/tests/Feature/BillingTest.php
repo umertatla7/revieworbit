@@ -12,6 +12,7 @@ use App\Domain\Tenancy\Models\PlatformUserRole;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as StripeRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -100,6 +101,56 @@ class BillingTest extends TestCase
         $this->getJson('/api/v1/billing', ['X-Business-ID' => $businessB->id])->assertOk()->assertJsonPath('data.current_plan_code', 'basic');
     }
 
+    public function test_plan_sync_sends_stripe_compatible_boolean_values_and_publishes_both_prices(): void
+    {
+        $admin = $this->admin();
+        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan->update(['stripe_product_id' => null, 'stripe_monthly_price_id' => null, 'stripe_annual_price_id' => null]);
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        $priceNumber = 0;
+        Http::fake(function (StripeRequest $request) use (&$priceNumber) {
+            if (str_ends_with($request->url(), '/v1/products')) {
+                return Http::response(['id' => 'prod_growth']);
+            }
+            if (str_ends_with($request->url(), '/v1/prices')) {
+                $priceNumber++;
+
+                return Http::response(['id' => $priceNumber === 1 ? 'price_growth_month' : 'price_growth_year']);
+            }
+            if (str_ends_with($request->url(), '/v1/billing_portal/configurations')) {
+                $this->assertSame('true', data_get($request->data(), 'features.invoice_history.enabled'));
+                $this->assertSame('true', data_get($request->data(), 'features.payment_method_update.enabled'));
+
+                return Http::response(['id' => 'bpc_test']);
+            }
+
+            return Http::response(['error' => ['message' => 'Unexpected Stripe request']], 400);
+        });
+
+        $this->actingAs($admin)->postJson("/api/v1/admin/plans/{$plan->id}/stripe-sync")
+            ->assertOk()
+            ->assertJsonPath('data.stripe_product_id', 'prod_growth')
+            ->assertJsonPath('data.stripe_monthly_price_id', 'price_growth_month')
+            ->assertJsonPath('data.stripe_annual_price_id', 'price_growth_year');
+        $this->assertDatabaseHas('platform_stripe_settings', ['portal_configuration_id' => 'bpc_test']);
+    }
+
+    public function test_owner_can_open_a_dedicated_payment_method_update_flow(): void
+    {
+        [$owner, $business] = $this->owner('Payment');
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified', 'portal_configuration_id' => 'bpc_test']);
+        BusinessSubscription::create(['business_id' => $business->id, 'stripe_customer_id' => 'cus_payment', 'status' => 'incomplete']);
+        Http::fake(['api.stripe.com/v1/billing_portal/sessions' => Http::response(['url' => 'https://billing.stripe.com/p/session/test'])]);
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/portal', ['flow' => 'payment_method'], ['X-Business-ID' => $business->id])
+            ->assertOk()->assertJsonPath('data.url', 'https://billing.stripe.com/p/session/test');
+        Http::assertSent(function (StripeRequest $request): bool {
+            return str_ends_with($request->url(), '/v1/billing_portal/sessions')
+                && data_get($request->data(), 'flow_data.type') === 'payment_method_update'
+                && data_get($request->data(), 'customer') === 'cus_payment';
+        });
+    }
+
     public function test_verified_idempotent_webhook_updates_only_the_mapped_business_subscription(): void
     {
         [, $business] = $this->owner('Webhook');
@@ -142,10 +193,14 @@ class BillingTest extends TestCase
 
         $this->actingAs($owner)->getJson('/api/v1/billing', ['X-Business-ID' => $business->id])
             ->assertOk()
+            ->assertJsonPath('data.has_stripe_customer', true)
+            ->assertJsonPath('data.can_manage_billing', true)
             ->assertJsonPath('data.subscription.plan.code', 'growth')
             ->assertJsonPath('data.payment_methods.0.last4', '4242')
             ->assertJsonPath('data.payment_methods.0.is_default', true)
-            ->assertJsonPath('data.invoices.0.number', 'RO-001');
+            ->assertJsonPath('data.invoices.0.number', 'RO-001')
+            ->assertJsonMissing(['stripe_customer_id' => 'cus_live'])
+            ->assertJsonMissing(['stripe_subscription_id' => 'sub_live']);
     }
 
     private function admin(): User

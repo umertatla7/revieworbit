@@ -18,15 +18,17 @@ class BillingController extends Controller
     public function show(Request $request, StripeGateway $stripe): JsonResponse
     {
         $business = $request->attributes->get('business');
-        $subscription = BusinessSubscription::with('plan')->where('business_id', $business->id)->first();
+        $subscriptionModel = BusinessSubscription::with('plan')->where('business_id', $business->id)->first();
+        $subscription = $subscriptionModel ? $this->subscriptionPayload($subscriptionModel) : null;
         $plans = SubscriptionPlan::where('status', 'active')->orderBy('sort_order')->orderBy('monthly_price_minor')->get();
-        $invoices = BillingInvoice::where('business_id', $business->id)->latest()->limit(12)->get();
+        $invoices = BillingInvoice::where('business_id', $business->id)->latest()->limit(12)->get()
+            ->map(fn (BillingInvoice $invoice): array => $this->invoicePayload($invoice))->all();
         $paymentMethods = [];
         $stripeError = null;
-        if ($subscription?->stripe_customer_id && PlatformStripeSetting::where('status', 'verified')->exists()) {
+        if ($subscriptionModel?->stripe_customer_id && PlatformStripeSetting::where('status', 'verified')->exists()) {
             try {
-                $snapshot = $stripe->customerBillingSnapshot($subscription);
-                $subscription = $snapshot['subscription'] ? (object) $snapshot['subscription'] : $subscription;
+                $snapshot = $stripe->customerBillingSnapshot($subscriptionModel);
+                $subscription = $snapshot['subscription'] ?: $subscription;
                 $paymentMethods = $snapshot['payment_methods'];
                 if ($snapshot['invoices'] !== []) {
                     $invoices = $snapshot['invoices'];
@@ -36,8 +38,14 @@ class BillingController extends Controller
             }
         }
 
+        $role = $request->attributes->get('membership')?->role;
+        $isOwner = ($role?->value ?? $role) === 'owner';
+        $isSupport = $request->attributes->get('support_access') === true;
+
         return response()->json(['data' => [
             'stripe_ready' => PlatformStripeSetting::where('status', 'verified')->whereNotNull('webhook_secret')->exists(),
+            'has_stripe_customer' => (bool) $subscriptionModel?->stripe_customer_id,
+            'can_manage_billing' => $isOwner && ! $isSupport,
             'current_plan_code' => $business->plan_code,
             'subscription' => $subscription,
             'plans' => $plans,
@@ -45,6 +53,33 @@ class BillingController extends Controller
             'payment_methods' => $paymentMethods,
             'stripe_error' => $stripeError,
         ]]);
+    }
+
+    private function subscriptionPayload(BusinessSubscription $subscription): array
+    {
+        return [
+            'status' => $subscription->status,
+            'billing_interval' => $subscription->billing_interval,
+            'trial_ends_at' => $subscription->trial_ends_at?->toIso8601String(),
+            'current_period_ends_at' => $subscription->current_period_ends_at?->toIso8601String(),
+            'cancel_at_period_end' => $subscription->cancel_at_period_end,
+            'plan' => $subscription->plan,
+        ];
+    }
+
+    private function invoicePayload(BillingInvoice $invoice): array
+    {
+        return [
+            'id' => $invoice->id,
+            'number' => $invoice->number,
+            'status' => $invoice->status,
+            'amount_due_minor' => $invoice->amount_due_minor,
+            'amount_paid_minor' => $invoice->amount_paid_minor,
+            'currency' => strtoupper($invoice->currency),
+            'hosted_invoice_url' => $invoice->hosted_invoice_url,
+            'invoice_pdf_url' => $invoice->invoice_pdf_url,
+            'created_at' => $invoice->created_at?->toIso8601String(),
+        ];
     }
 
     public function checkout(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
@@ -63,9 +98,11 @@ class BillingController extends Controller
     public function portal(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
         $this->ensureCustomerOwner($request);
+        $data = $request->validate(['flow' => ['sometimes', Rule::in(['payment_method'])]]);
         $business = $request->attributes->get('business');
-        $url = $stripe->portal($business);
-        $auditor->record($request, 'billing.portal_opened', $business);
+        $flow = $data['flow'] ?? null;
+        $url = $stripe->portal($business, flow: $flow);
+        $auditor->record($request, 'billing.portal_opened', $business, ['flow' => $flow ?? 'general']);
 
         return response()->json(['data' => ['url' => $url]]);
     }

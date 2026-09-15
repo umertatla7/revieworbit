@@ -7,7 +7,8 @@ type Plan = {
   id: string; code: string; name: string; description: string | null;
   monthly_price_minor: number; annual_price_minor: number; currency: string;
   trial_days: number; badge: string | null; is_featured: boolean; sort_order: number;
-  features: string[] | null; status: string; stripe_monthly_price_id: string | null;
+  features: string[] | null; status: string; stripe_product_id: string | null;
+  stripe_monthly_price_id: string | null; stripe_annual_price_id: string | null;
   location_limit: number; template_limit: number; automation_limit: number;
   automation_step_limit: number; media_template_limit: number;
   review_destination_limit: number; included_message_credits: number;
@@ -98,12 +99,28 @@ export default function AdminBillingPage() {
     } finally { setBusy(false); }
   }
 
+  async function syncAll() {
+    const activePlans = plans.filter((plan) => plan.status === "active");
+    setBusy(true);
+    setMessage("");
+    try {
+      for (const plan of activePlans) {
+        await api(`/api/v1/admin/plans/${plan.id}/stripe-sync`, { method: "POST" });
+      }
+      setMessage(`${activePlans.length} active plan${activePlans.length === 1 ? "" : "s"} synchronized with Stripe.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to synchronize all plans with Stripe.");
+      await load();
+    } finally { setBusy(false); }
+  }
+
   const totalMessages = usage.reduce((total, row) => total + row.messages, 0);
   return (
     <div className="mx-auto max-w-7xl">
       <div className="flex flex-wrap items-end justify-between gap-5">
         <div><p className="eyebrow">Platform billing</p><h1 className="page-title">Plans & subscriptions</h1><p className="page-intro">Create simple all-inclusive packages, control allowances, and publish their prices to Stripe.</p></div>
-        <button className="button-primary" onClick={() => setEditing({ ...emptyPlan })}>+ Create plan</button>
+        <div className="flex gap-3"><button disabled={busy || plans.filter((plan) => plan.status === "active").length === 0} className="rounded-xl border border-ink/10 bg-white px-5 py-3 text-sm font-semibold disabled:opacity-40" onClick={syncAll}>{busy ? "Working…" : "Sync all with Stripe"}</button><button className="button-primary" onClick={() => setEditing({ ...emptyPlan })}>+ Create plan</button></div>
       </div>
       {message && <p className="mt-5 rounded-xl border border-ink/8 bg-white px-4 py-3 text-sm">{message}</p>}
       <div className="mt-7 grid gap-4 sm:grid-cols-2"><Metric label="Active plans" value={String(plans.filter((plan) => plan.status === "active").length)} /><Metric label="Messages this month" value={String(totalMessages)} /></div>
@@ -119,8 +136,9 @@ export default function AdminBillingPage() {
             <p className="mt-5 text-3xl font-semibold">{money(plan.monthly_price_minor, plan.currency)}<span className="text-xs font-normal text-ink/45"> / month</span></p>
             <p className="mt-1 text-xs text-ink/45">{money(plan.annual_price_minor, plan.currency)} annually · {plan.trial_days}-day trial</p>
             <div className="mt-5 grid grid-cols-2 gap-2"><Limit label="Locations" value={plan.location_limit} /><Limit label="Templates" value={plan.template_limit} /><Limit label="Automations" value={plan.automation_limit} /><Limit label="Review links" value={plan.review_destination_limit} /><Limit label="Media" value={plan.media_template_limit} /><Limit label="Included messages" value={plan.included_message_credits} /></div>
-            <p className="mt-4 rounded-lg bg-paper px-3 py-2 text-xs text-ink/60">No per-message or overage charges.</p>
-            <div className="mt-5 flex gap-3"><button className="text-sm font-semibold text-forest" onClick={() => setEditing(plan)}>Configure</button><button disabled={busy} className="text-sm font-semibold text-forest disabled:opacity-40" onClick={() => sync(plan)}>{plan.stripe_monthly_price_id ? "Resync Stripe" : "Sync Stripe"}</button></div>
+            <p className="mt-4 rounded-lg bg-paper px-3 py-2 text-xs text-ink/60">Real database plan · No per-message or overage charges.</p>
+            <StripeStatus plan={plan}/>
+            <div className="mt-5 flex gap-3"><button className="text-sm font-semibold text-forest" onClick={() => setEditing(plan)}>Configure</button><button disabled={busy} className="text-sm font-semibold text-forest disabled:opacity-40" onClick={() => sync(plan)}>{stripeState(plan)==="published" ? "Resync Stripe" : "Sync Stripe"}</button></div>
           </article>
         ))}</div>
       )}
@@ -159,5 +177,7 @@ function Field({ name, label, value, number, disabled, hint, required = true }: 
   return <label className="label">{label}<input className="field" name={name} required={required} disabled={disabled} type={number ? "number" : "text"} min={number ? 0 : undefined} defaultValue={String(value ?? "")} />{disabled && <input type="hidden" name={name} value={String(value ?? "")} />}{hint && <span className="mt-1 block text-xs font-normal normal-case text-ink/45">{hint}</span>}</label>;
 }
 function Limit({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-paper p-3 text-xs"><span className="text-ink/45">{label}</span><strong className="float-right">{value}</strong></div>; }
+function stripeState(plan: Plan) { const count=[plan.stripe_product_id,plan.stripe_monthly_price_id,plan.stripe_annual_price_id].filter(Boolean).length; return count===3?"published":count===0?"not-synced":"partial"; }
+function StripeStatus({plan}:{plan:Plan}) { const state=stripeState(plan); return <div className={`mt-3 flex items-center justify-between rounded-lg px-3 py-2 text-xs ${state==="published"?"bg-emerald-50 text-emerald-800":state==="partial"?"bg-amber-50 text-amber-800":"bg-slate-50 text-slate-600"}`}><span>Stripe status</span><strong>{state==="published"?"Published":state==="partial"?"Partial — sync again":"Not synchronized"}</strong></div>; }
 function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-ink/8 bg-white p-5"><p className="text-xs text-ink/45">{label}</p><strong className="mt-2 block text-2xl">{value}</strong></div>; }
 function money(value: number, currency: string) { return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value / 100); }

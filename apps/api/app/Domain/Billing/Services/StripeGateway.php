@@ -7,6 +7,7 @@ use App\Domain\Billing\Models\PlatformStripeSetting;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
@@ -30,86 +31,106 @@ class StripeGateway
 
     public function syncPlan(SubscriptionPlan $plan): SubscriptionPlan
     {
-        $setting = $this->configuration();
-        $product = $plan->stripe_product_id
-            ? $this->request($setting)->post('/v1/products/'.$plan->stripe_product_id, $this->productData($plan))->throw()->json()
-            : $this->request($setting)->post('/v1/products', $this->productData($plan))->throw()->json();
+        try {
+            $setting = $this->configuration();
+            $product = $plan->stripe_product_id
+                ? $this->request($setting)->post('/v1/products/'.$plan->stripe_product_id, $this->productData($plan))->throw()->json()
+                : $this->request($setting)->post('/v1/products', $this->productData($plan))->throw()->json();
 
-        $monthly = $this->ensurePrice($setting, $plan->stripe_monthly_price_id, $product['id'], $plan->monthly_price_minor, $plan->currency, 'month', $plan);
-        $annual = $this->ensurePrice($setting, $plan->stripe_annual_price_id, $product['id'], $plan->annual_price_minor, $plan->currency, 'year', $plan);
-        $plan->update(['stripe_product_id' => $product['id'], 'stripe_monthly_price_id' => $monthly, 'stripe_annual_price_id' => $annual]);
-        $this->syncPortalConfiguration($setting);
+            $monthly = $this->ensurePrice($setting, $plan->stripe_monthly_price_id, $product['id'], $plan->monthly_price_minor, $plan->currency, 'month', $plan);
+            $annual = $this->ensurePrice($setting, $plan->stripe_annual_price_id, $product['id'], $plan->annual_price_minor, $plan->currency, 'year', $plan);
+            $plan->update(['stripe_product_id' => $product['id'], 'stripe_monthly_price_id' => $monthly, 'stripe_annual_price_id' => $annual]);
+            $this->syncPortalConfiguration($setting);
 
-        return $plan->fresh();
+            return $plan->fresh();
+        } catch (RequestException $exception) {
+            $message = data_get($exception->response?->json(), 'error.message');
+            throw ValidationException::withMessages([
+                'stripe' => [$message ?: 'Stripe could not synchronize this plan. Check the Stripe configuration and try again.'],
+            ]);
+        }
     }
 
     public function checkout(Business $business, SubscriptionPlan $plan, string $interval): string
     {
-        $setting = $this->configuration();
-        $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
-        $customerId = $subscription->stripe_customer_id;
-        if (! $customerId) {
-            $customer = $this->request($setting)->post('/v1/customers', [
-                'name' => $business->name,
-                'email' => $business->primary_email,
-                'metadata' => ['business_id' => $business->id],
+        try {
+            $setting = $this->configuration();
+            $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
+            $customerId = $subscription->stripe_customer_id;
+            if (! $customerId) {
+                $customer = $this->request($setting)->post('/v1/customers', [
+                    'name' => $business->name,
+                    'email' => $business->primary_email,
+                    'metadata' => ['business_id' => $business->id],
+                ])->throw()->json();
+                $customerId = $customer['id'];
+                $subscription->update(['stripe_customer_id' => $customerId]);
+            }
+
+            $priceId = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
+            if (! $priceId) {
+                throw ValidationException::withMessages(['plan' => ['This plan is not available for checkout yet.']]);
+            }
+            $web = rtrim((string) config('services.frontend.url'), '/');
+            $subscriptionData = ['metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id]];
+            if (! $subscription->trial_started_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
+                $subscriptionData['trial_period_days'] = $plan->trial_days;
+            }
+            $session = $this->request($setting)->post('/v1/checkout/sessions', [
+                'mode' => 'subscription', 'customer' => $customerId,
+                'line_items' => [['price' => $priceId, 'quantity' => 1]],
+                'success_url' => $web.'/dashboard/billing?checkout=success',
+                'cancel_url' => $web.'/dashboard/billing?checkout=cancelled',
+                'allow_promotion_codes' => 'true',
+                'billing_address_collection' => 'auto',
+                'client_reference_id' => $business->id,
+                'metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id],
+                'subscription_data' => $subscriptionData,
             ])->throw()->json();
-            $customerId = $customer['id'];
-            $subscription->update(['stripe_customer_id' => $customerId]);
-        }
 
-        $priceId = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
-        if (! $priceId) {
-            throw ValidationException::withMessages(['plan' => ['This plan is not available for checkout yet.']]);
+            return $session['url'];
+        } catch (RequestException $exception) {
+            $this->throwStripeValidation($exception, 'Stripe Checkout could not be opened. Please try again.');
         }
-        $web = rtrim((string) config('services.frontend.url'), '/');
-        $subscriptionData = ['metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id]];
-        if (! $subscription->trial_started_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
-            $subscriptionData['trial_period_days'] = $plan->trial_days;
-        }
-        $session = $this->request($setting)->post('/v1/checkout/sessions', [
-            'mode' => 'subscription', 'customer' => $customerId,
-            'line_items' => [['price' => $priceId, 'quantity' => 1]],
-            'success_url' => $web.'/dashboard/billing?checkout=success',
-            'cancel_url' => $web.'/dashboard/billing?checkout=cancelled',
-            'allow_promotion_codes' => true,
-            'billing_address_collection' => 'auto',
-            'client_reference_id' => $business->id,
-            'metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id],
-            'subscription_data' => $subscriptionData,
-        ])->throw()->json();
-
-        return $session['url'];
     }
 
-    public function portal(Business $business, ?SubscriptionPlan $plan = null, ?string $interval = null): string
+    public function portal(Business $business, ?SubscriptionPlan $plan = null, ?string $interval = null, ?string $flow = null): string
     {
-        $setting = $this->configuration();
-        $subscription = BusinessSubscription::where('business_id', $business->id)->first();
-        if (! $subscription?->stripe_customer_id) {
-            throw ValidationException::withMessages(['billing' => ['Start a subscription before opening billing management.']]);
-        }
-        $web = rtrim((string) config('services.frontend.url'), '/');
-        $payload = ['customer' => $subscription->stripe_customer_id, 'return_url' => $web.'/dashboard/billing'];
-        if ($setting->portal_configuration_id) {
-            $payload['configuration'] = $setting->portal_configuration_id;
-        }
-        if ($plan && $subscription->stripe_subscription_id) {
-            $price = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
-            if (! $price) {
-                throw ValidationException::withMessages(['plan' => ['This billing interval is not available.']]);
+        try {
+            $setting = $this->configuration();
+            $subscription = BusinessSubscription::where('business_id', $business->id)->first();
+            if (! $subscription?->stripe_customer_id) {
+                throw ValidationException::withMessages(['billing' => ['Start a subscription before opening billing management.']]);
             }
-            $payload['flow_data'] = [
-                'type' => 'subscription_update_confirm',
-                'subscription_update_confirm' => [
-                    'subscription' => $subscription->stripe_subscription_id,
-                    'items' => [['price' => $price, 'quantity' => 1]],
-                ],
-                'after_completion' => ['type' => 'redirect', 'redirect' => ['return_url' => $web.'/dashboard/billing?plan=updated']],
-            ];
-        }
+            $web = rtrim((string) config('services.frontend.url'), '/');
+            $payload = ['customer' => $subscription->stripe_customer_id, 'return_url' => $web.'/dashboard/billing'];
+            if ($setting->portal_configuration_id) {
+                $payload['configuration'] = $setting->portal_configuration_id;
+            }
+            if ($flow === 'payment_method') {
+                $payload['flow_data'] = [
+                    'type' => 'payment_method_update',
+                    'after_completion' => ['type' => 'redirect', 'redirect' => ['return_url' => $web.'/dashboard/billing?payment=updated']],
+                ];
+            } elseif ($plan && $subscription->stripe_subscription_id) {
+                $price = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
+                if (! $price) {
+                    throw ValidationException::withMessages(['plan' => ['This billing interval is not available.']]);
+                }
+                $payload['flow_data'] = [
+                    'type' => 'subscription_update_confirm',
+                    'subscription_update_confirm' => [
+                        'subscription' => $subscription->stripe_subscription_id,
+                        'items' => [['price' => $price, 'quantity' => 1]],
+                    ],
+                    'after_completion' => ['type' => 'redirect', 'redirect' => ['return_url' => $web.'/dashboard/billing?plan=updated']],
+                ];
+            }
 
-        return $this->request($setting)->post('/v1/billing_portal/sessions', $payload)->throw()->json('url');
+            return $this->request($setting)->post('/v1/billing_portal/sessions', $payload)->throw()->json('url');
+        } catch (RequestException $exception) {
+            $this->throwStripeValidation($exception, 'Stripe billing management could not be opened. Please try again.');
+        }
     }
 
     public function customerBillingSnapshot(BusinessSubscription $subscription): array
@@ -201,11 +222,11 @@ class StripeGateway
         $payload = [
             'business_profile' => ['headline' => 'Manage your ReviewOrbit subscription'],
             'features' => [
-                'customer_update' => ['enabled' => true, 'allowed_updates' => ['email', 'address', 'tax_id']],
-                'invoice_history' => ['enabled' => true],
-                'payment_method_update' => ['enabled' => true],
-                'subscription_cancel' => ['enabled' => true, 'mode' => 'at_period_end', 'cancellation_reason' => ['enabled' => true, 'options' => ['too_expensive', 'missing_features', 'switched_service', 'unused', 'other']]],
-                'subscription_update' => ['enabled' => true, 'default_allowed_updates' => ['price'], 'products' => $products],
+                'customer_update' => ['enabled' => 'true', 'allowed_updates' => ['email', 'address', 'tax_id']],
+                'invoice_history' => ['enabled' => 'true'],
+                'payment_method_update' => ['enabled' => 'true'],
+                'subscription_cancel' => ['enabled' => 'true', 'mode' => 'at_period_end', 'cancellation_reason' => ['enabled' => 'true', 'options' => ['too_expensive', 'missing_features', 'switched_service', 'unused', 'other']]],
+                'subscription_update' => ['enabled' => 'true', 'default_allowed_updates' => ['price'], 'products' => $products],
             ],
         ];
         $response = $setting->portal_configuration_id
@@ -222,5 +243,11 @@ class StripeGateway
         return Http::baseUrl('https://api.stripe.com')->withToken($setting->secret_key)
             ->withHeaders(['Stripe-Version' => config('services.stripe.api_version')])
             ->asForm()->acceptJson()->timeout(15)->retry(2, 200, throw: false);
+    }
+
+    private function throwStripeValidation(RequestException $exception, string $fallback): never
+    {
+        $message = data_get($exception->response?->json(), 'error.message');
+        throw ValidationException::withMessages(['stripe' => [$message ?: $fallback]]);
     }
 }
