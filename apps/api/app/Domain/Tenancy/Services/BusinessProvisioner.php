@@ -2,9 +2,11 @@
 
 namespace App\Domain\Tenancy\Services;
 
+use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
+use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -53,6 +55,11 @@ class BusinessProvisioner
                 'onboarding_step' => 3,
             ]);
             BusinessUser::create(['business_id' => $business->id, 'user_id' => $owner->id, 'role' => BusinessRole::Owner]);
+            BusinessSubscription::create([
+                'business_id' => $business->id,
+                'subscription_plan_id' => SubscriptionPlan::where('code', $business->plan_code)->value('id'),
+                'status' => 'none',
+            ]);
             $location = $business->locations()->create([
                 'name' => $data['location_name'],
                 'timezone' => $data['timezone'],

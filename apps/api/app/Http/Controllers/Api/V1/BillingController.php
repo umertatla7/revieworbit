@@ -45,7 +45,8 @@ class BillingController extends Controller
         return response()->json(['data' => [
             'stripe_ready' => PlatformStripeSetting::where('status', 'verified')->whereNotNull('webhook_secret')->exists(),
             'has_stripe_customer' => (bool) $subscriptionModel?->stripe_customer_id,
-            'can_manage_billing' => $isOwner && ! $isSupport,
+            'can_manage_billing' => $isOwner || $isSupport,
+            'managed_by_support' => $isSupport,
             'current_plan_code' => $business->plan_code,
             'subscription' => $subscription,
             'plans' => $plans,
@@ -84,7 +85,7 @@ class BillingController extends Controller
 
     public function checkout(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
-        $this->ensureCustomerOwner($request);
+        $this->ensureBillingManager($request);
         $data = $request->validate(['plan_id' => ['required', Rule::exists('subscription_plans', 'id')->where('status', 'active')], 'interval' => ['required', Rule::in(['month', 'year'])]]);
         $business = $request->attributes->get('business');
         $plan = SubscriptionPlan::findOrFail($data['plan_id']);
@@ -97,7 +98,7 @@ class BillingController extends Controller
 
     public function portal(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
-        $this->ensureCustomerOwner($request);
+        $this->ensureBillingManager($request);
         $data = $request->validate(['flow' => ['sometimes', Rule::in(['payment_method'])]]);
         $business = $request->attributes->get('business');
         $flow = $data['flow'] ?? null;
@@ -107,9 +108,12 @@ class BillingController extends Controller
         return response()->json(['data' => ['url' => $url]]);
     }
 
-    private function ensureCustomerOwner(Request $request): void
+    private function ensureBillingManager(Request $request): void
     {
-        abort_if($request->attributes->get('support_access') === true, 403, 'For customer privacy, administrators cannot open a customer billing session.');
+        if ($request->attributes->get('support_access') === true) {
+            return;
+        }
+
         abort_unless(($request->attributes->get('membership')?->role?->value ?? $request->attributes->get('membership')?->role) === 'owner', 403, 'Only the business owner can manage billing.');
     }
 }

@@ -56,16 +56,7 @@ class StripeGateway
         try {
             $setting = $this->configuration();
             $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
-            $customerId = $subscription->stripe_customer_id;
-            if (! $customerId) {
-                $customer = $this->request($setting)->post('/v1/customers', [
-                    'name' => $business->name,
-                    'email' => $business->primary_email,
-                    'metadata' => ['business_id' => $business->id],
-                ])->throw()->json();
-                $customerId = $customer['id'];
-                $subscription->update(['stripe_customer_id' => $customerId]);
-            }
+            $customerId = $this->ensureCustomer($setting, $business, $subscription);
 
             $priceId = $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id;
             if (! $priceId) {
@@ -98,12 +89,10 @@ class StripeGateway
     {
         try {
             $setting = $this->configuration();
-            $subscription = BusinessSubscription::where('business_id', $business->id)->first();
-            if (! $subscription?->stripe_customer_id) {
-                throw ValidationException::withMessages(['billing' => ['Start a subscription before opening billing management.']]);
-            }
+            $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
+            $customerId = $this->ensureCustomer($setting, $business, $subscription);
             $web = rtrim((string) config('services.frontend.url'), '/');
-            $payload = ['customer' => $subscription->stripe_customer_id, 'return_url' => $web.'/dashboard/billing'];
+            $payload = ['customer' => $customerId, 'return_url' => $web.'/dashboard/billing'];
             if ($setting->portal_configuration_id) {
                 $payload['configuration'] = $setting->portal_configuration_id;
             }
@@ -243,6 +232,22 @@ class StripeGateway
         return Http::baseUrl('https://api.stripe.com')->withToken($setting->secret_key)
             ->withHeaders(['Stripe-Version' => config('services.stripe.api_version')])
             ->asForm()->acceptJson()->timeout(15)->retry(2, 200, throw: false);
+    }
+
+    private function ensureCustomer(PlatformStripeSetting $setting, Business $business, BusinessSubscription $subscription): string
+    {
+        if ($subscription->stripe_customer_id) {
+            return $subscription->stripe_customer_id;
+        }
+
+        $customer = $this->request($setting)->post('/v1/customers', [
+            'name' => $business->name,
+            'email' => $business->primary_email,
+            'metadata' => ['business_id' => $business->id],
+        ])->throw()->json();
+        $subscription->update(['stripe_customer_id' => $customer['id']]);
+
+        return $customer['id'];
     }
 
     private function throwStripeValidation(RequestException $exception, string $fallback): never

@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Tenancy\Models\AdminSupportSession;
 use App\Domain\Tenancy\Models\Business;
+use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Domain\Tenancy\Services\BusinessProvisioner;
 use App\Domain\Tenancy\Services\PlanEntitlements;
 use App\Domain\Visits\Models\Visit;
@@ -116,6 +118,12 @@ class PlatformBusinessController extends Controller
             $data['default_country'] = strtoupper($data['default_country']);
         }
         $model->update($data);
+        if (isset($data['plan_code'])) {
+            $subscription = BusinessSubscription::firstOrCreate(['business_id' => $model->id]);
+            if (! $subscription->stripe_subscription_id) {
+                $subscription->update(['subscription_plan_id' => SubscriptionPlan::where('code', $data['plan_code'])->value('id')]);
+            }
+        }
         $auditor->record($request, 'platform.business.updated', $model, array_keys($data));
 
         return response()->json(['data' => $this->payload($model->fresh())]);

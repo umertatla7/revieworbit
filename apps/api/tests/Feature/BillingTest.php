@@ -151,6 +151,43 @@ class BillingTest extends TestCase
         });
     }
 
+    public function test_admin_support_can_open_an_audited_payment_method_flow_without_an_existing_stripe_customer(): void
+    {
+        $admin = $this->admin();
+        [, $business] = $this->owner('Assisted payment');
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified', 'portal_configuration_id' => 'bpc_test']);
+        Http::fake([
+            'api.stripe.com/v1/customers' => Http::response(['id' => 'cus_assisted']),
+            'api.stripe.com/v1/billing_portal/sessions' => Http::response(['url' => 'https://billing.stripe.com/p/session/assisted']),
+        ]);
+        $token = $this->actingAs($admin)->postJson("/api/v1/admin/businesses/{$business->id}/support-sessions", [
+            'reason' => 'Customer requested billing assistance by phone.',
+        ])->assertCreated()->json('data.token');
+        $headers = ['X-Business-ID' => $business->id, 'X-Support-Session' => $token];
+
+        $this->actingAs($admin)->getJson('/api/v1/billing', $headers)
+            ->assertOk()->assertJsonPath('data.can_manage_billing', true)->assertJsonPath('data.managed_by_support', true);
+        $this->actingAs($admin)->postJson('/api/v1/billing/portal', ['flow' => 'payment_method'], $headers)
+            ->assertOk()->assertJsonPath('data.url', 'https://billing.stripe.com/p/session/assisted');
+        $this->assertDatabaseHas('business_subscriptions', ['business_id' => $business->id, 'stripe_customer_id' => 'cus_assisted']);
+        $this->assertDatabaseHas('audit_logs', ['business_id' => $business->id, 'actor_user_id' => $admin->id, 'action' => 'billing.portal_opened']);
+    }
+
+    public function test_admin_plan_assignment_links_the_business_subscription_record(): void
+    {
+        $admin = $this->admin();
+        [, $business] = $this->owner('Assigned plan');
+        $plan = SubscriptionPlan::where('code', 'pro')->firstOrFail();
+
+        $this->actingAs($admin)->patchJson("/api/v1/admin/businesses/{$business->id}", ['plan_code' => 'pro'])
+            ->assertOk()->assertJsonPath('data.plan_code', 'pro');
+
+        $this->assertDatabaseHas('business_subscriptions', [
+            'business_id' => $business->id,
+            'subscription_plan_id' => $plan->id,
+        ]);
+    }
+
     public function test_verified_idempotent_webhook_updates_only_the_mapped_business_subscription(): void
     {
         [, $business] = $this->owner('Webhook');

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
@@ -11,6 +12,7 @@ use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\Location;
 use App\Domain\Tenancy\Models\LocationReviewDestination;
+use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Domain\Visits\Models\Visit;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -58,6 +60,10 @@ class TestBusinessSeeder extends Seeder
                 BusinessUser::updateOrCreate(
                     ['business_id' => $business->id, 'user_id' => $owner->id],
                     ['role' => BusinessRole::Owner, 'status' => 'active'],
+                );
+                BusinessSubscription::updateOrCreate(
+                    ['business_id' => $business->id],
+                    ['subscription_plan_id' => SubscriptionPlan::where('code', $fixture['plan'])->value('id')],
                 );
 
                 $locationCount = ['basic' => 1, 'growth' => 2, 'pro' => 3][$fixture['plan']];

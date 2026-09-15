@@ -19,7 +19,7 @@ describe("customer billing", () => {
 
   it("shows real billing sections, masked cards, invoices, and plan comparison", async () => {
     apiMock.mockResolvedValue({ data: {
-      stripe_ready: true, has_stripe_customer: true, can_manage_billing: true, current_plan_code: "growth",
+      stripe_ready: true, has_stripe_customer: true, can_manage_billing: true, managed_by_support: false, current_plan_code: "growth",
       subscription: { status: "active", billing_interval: "month", trial_ends_at: null, current_period_ends_at: "2030-01-01T00:00:00Z", cancel_at_period_end: false, plan },
       plans: [plan], payment_methods: [{ id: "pm_1", brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030, is_default: true }],
       invoices: [{ id: "in_1", number: "RO-001", status: "paid", amount_paid_minor: 4900, amount_due_minor: 4900, currency: "USD", hosted_invoice_url: "https://invoice.test", invoice_pdf_url: "https://invoice.test/pdf", created_at: "2029-12-01T00:00:00Z" }],
@@ -40,6 +40,6 @@ describe("customer billing", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Plans" }));
     expect(screen.getByText("For growing teams")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Current paid plan" })).toBeDisabled();
   });
 });

@@ -59,8 +59,21 @@ export async function csrf(): Promise<void> {
     document.cookie = "XSRF-TOKEN=; Max-Age=0; Path=/; SameSite=Lax";
   }
 
-  const response = await fetch(`${API_URL}/sanctum/csrf-cookie`, { credentials: "include" });
+  const response = await fetchWithRetry(`${API_URL}/sanctum/csrf-cookie`, { credentials: "include" });
   if (!response.ok) throw new ApiError("Unable to initialize the secure session.", response.status);
+}
+
+async function fetchWithRetry(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    try {
+      return await fetch(input, init);
+    } catch {
+      throw new ApiError("Unable to reach ReviewOrbit. Check your connection and try again.", 0);
+    }
+  }
 }
 
 export async function api<T>(path: string, init: RequestInit = {}, withBusiness = false): Promise<T> {
@@ -84,7 +97,7 @@ export async function api<T>(path: string, init: RequestInit = {}, withBusiness 
       if (supportToken) headers.set("X-Support-Session", supportToken);
     }
 
-    return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
+    return fetchWithRetry(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
   };
 
   if (withBusiness && !selectedBusinessId()) {
