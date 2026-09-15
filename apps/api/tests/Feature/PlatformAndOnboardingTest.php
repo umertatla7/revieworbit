@@ -13,6 +13,8 @@ use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -145,6 +147,53 @@ class PlatformAndOnboardingTest extends TestCase
         ])->assertOk()->assertJsonPath('data.name', 'Supported Business Updated');
         $this->assertDatabaseHas('audit_logs', ['business_id' => $business->id, 'action' => 'platform.support_session.started']);
         $this->assertDatabaseHas('audit_logs', ['business_id' => $business->id, 'action' => 'business.updated']);
+    }
+
+    public function test_super_admin_can_reset_a_tenant_owner_password_and_revoke_existing_access(): void
+    {
+        $admin = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $admin->id, 'role' => PlatformRole::SuperAdmin]);
+        [$owner, $business] = $this->ownerAndBusiness('Password Reset Business');
+        $owner->createToken('existing-mobile-session');
+        DB::table('sessions')->insert([
+            'id' => 'existing-browser-session',
+            'user_id' => $owner->id,
+            'payload' => 'fixture',
+            'last_activity' => now()->timestamp,
+        ]);
+
+        $this->actingAs($admin)->postJson('/api/v1/admin/businesses/'.$business->id.'/owners/'.$owner->id.'/password', [
+            'password' => 'NewPassword2026!',
+            'password_confirmation' => 'NewPassword2026!',
+        ])->assertOk()->assertJsonPath('message', 'The owner password was reset and existing sessions were signed out.');
+
+        $this->assertTrue(Hash::check('NewPassword2026!', $owner->fresh()->password));
+        $this->assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $owner->id]);
+        $this->assertDatabaseMissing('sessions', ['user_id' => $owner->id]);
+        $this->assertDatabaseHas('audit_logs', [
+            'business_id' => $business->id,
+            'actor_user_id' => $admin->id,
+            'action' => 'platform.business_owner.password_reset',
+        ]);
+    }
+
+    public function test_owner_password_reset_is_super_admin_only_and_tenant_scoped(): void
+    {
+        $manager = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $manager->id, 'role' => PlatformRole::PlatformManager]);
+        [, $businessA] = $this->ownerAndBusiness('Password Business A');
+        [$ownerB] = $this->ownerAndBusiness('Password Business B');
+        $payload = ['password' => 'NewPassword2026!', 'password_confirmation' => 'NewPassword2026!'];
+
+        $this->actingAs($manager)
+            ->postJson('/api/v1/admin/businesses/'.$businessA->id.'/owners/'.$ownerB->id.'/password', $payload)
+            ->assertForbidden();
+
+        $admin = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $admin->id, 'role' => PlatformRole::SuperAdmin]);
+        $this->actingAs($admin)
+            ->postJson('/api/v1/admin/businesses/'.$businessA->id.'/owners/'.$ownerB->id.'/password', $payload)
+            ->assertNotFound();
     }
 
     public function test_expired_or_cross_tenant_support_session_is_rejected(): void

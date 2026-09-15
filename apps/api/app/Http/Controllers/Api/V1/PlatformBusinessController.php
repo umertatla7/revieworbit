@@ -8,6 +8,7 @@ use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Tenancy\Models\AdminSupportSession;
 use App\Domain\Tenancy\Models\Business;
+use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Domain\Tenancy\Services\BusinessProvisioner;
 use App\Domain\Tenancy\Services\PlanEntitlements;
@@ -15,9 +16,11 @@ use App\Domain\Visits\Models\Visit;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password as PasswordBroker;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class PlatformBusinessController extends Controller
 {
@@ -38,7 +41,7 @@ class PlatformBusinessController extends Controller
         return response()->json(['data' => $query->limit(100)->get()->map(fn (Business $business): array => $this->payload($business))]);
     }
 
-    public function show(string $business, PlanEntitlements $entitlements): JsonResponse
+    public function show(Request $request, string $business, PlanEntitlements $entitlements): JsonResponse
     {
         $model = Business::withCount(['locations', 'customers', 'posIntegrations'])
             ->with(['locations', 'posIntegrations.toastRestaurants.location:id,name', 'memberships.user:id,name,email'])
@@ -46,6 +49,7 @@ class PlatformBusinessController extends Controller
 
         return response()->json(['data' => [
             ...$this->payload($model, true),
+            'can_reset_owner_password' => $request->user()->platformRoles()->where('role', 'super_admin')->exists(),
             'entitlements' => $entitlements->for($model),
             'analytics' => $this->analytics($model),
         ]]);
@@ -150,6 +154,34 @@ class PlatformBusinessController extends Controller
             'token' => $plainToken,
             'expires_at' => $session->expires_at,
         ]], 201);
+    }
+
+    public function resetOwnerPassword(Request $request, string $business, string $user, Auditor $auditor): JsonResponse
+    {
+        $model = Business::findOrFail($business);
+        $membership = BusinessUser::query()
+            ->where('business_id', $model->id)
+            ->where('user_id', $user)
+            ->where('role', 'owner')
+            ->where('status', 'active')
+            ->with('user')
+            ->firstOrFail();
+        $data = $request->validate([
+            'password' => ['required', 'confirmed', Password::min(12)->mixedCase()->numbers()->symbols()],
+        ]);
+
+        $membership->user->forceFill([
+            'password' => $data['password'],
+            'remember_token' => Str::random(60),
+        ])->save();
+        $membership->user->tokens()->delete();
+        DB::table('sessions')->where('user_id', $membership->user->id)->delete();
+        $auditor->record($request, 'platform.business_owner.password_reset', $membership, [
+            'owner_user_id' => $membership->user->id,
+            'sessions_revoked' => true,
+        ]);
+
+        return response()->json(['message' => 'The owner password was reset and existing sessions were signed out.']);
     }
 
     private function payload(Business $business, bool $detailed = false): array
