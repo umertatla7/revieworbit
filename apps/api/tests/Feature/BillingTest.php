@@ -111,7 +111,8 @@ class BillingTest extends TestCase
         $this->getJson('/api/v1/plans')->assertOk()
             ->assertJsonPath('data.0.code', 'launch')
             ->assertJsonMissing(['stripe_product_id' => 'prod_private'])
-            ->assertJsonMissing(['stripe_monthly_price_id' => 'price_private']);
+            ->assertJsonMissing(['stripe_monthly_price_id' => 'price_private'])
+            ->assertJsonMissingPath('data.0.included_message_credits');
     }
 
     public function test_owner_changes_an_existing_subscription_in_app_with_proration(): void

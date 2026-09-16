@@ -21,7 +21,7 @@ class BillingController extends Controller
             ->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
             ->makeHidden([
                 'stripe_product_id', 'stripe_monthly_price_id', 'stripe_annual_price_id',
-                'overage_price_minor', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
+                'overage_price_minor', 'included_message_credits', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
                 'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
                 'estimated_whatsapp_provider_cost_minor', 'allow_overage',
             ])]);
