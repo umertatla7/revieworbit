@@ -101,7 +101,7 @@ class MilestoneSixTest extends TestCase
         $rule->delete();
         $template->update(['location_id' => $location->id]);
         $business->update([
-            'plan_code' => 'growth',
+            'plan_code' => 'momentum',
             'messaging_preferences' => ['quiet_hours_start' => '21:00', 'quiet_hours_end' => '08:30'],
         ]);
         $headers = ['X-Business-ID' => $business->id];
@@ -204,7 +204,7 @@ class MilestoneSixTest extends TestCase
         Storage::fake('local');
         Queue::fake();
         [$owner, $business, , $customer] = $this->fixture();
-        $business->update(['plan_code' => 'growth']);
+        $business->update(['plan_code' => 'momentum']);
         $headers = ['X-Business-ID' => $business->id];
         $response = $this->actingAs($owner)->post('/api/v1/media-templates', [
             'name' => 'Thank you card', 'background' => UploadedFile::fake()->image('background.png', 800, 600),

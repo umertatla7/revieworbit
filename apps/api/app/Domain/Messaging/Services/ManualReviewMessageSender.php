@@ -6,7 +6,6 @@ use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Templates\Services\TemplateRenderer;
-use App\Domain\Tenancy\Services\PlanEntitlements;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -18,7 +17,6 @@ class ManualReviewMessageSender
         private readonly MessagingProvider $provider,
         private readonly TemplateRenderer $renderer,
         private readonly MessageCostEstimator $costEstimator,
-        private readonly PlanEntitlements $entitlements,
     ) {}
 
     public function send(ReviewLink $source, string $customBody, string $userId): MessageDelivery
@@ -26,6 +24,7 @@ class ManualReviewMessageSender
         return DB::transaction(function () use ($source, $customBody, $userId): MessageDelivery {
             $source->loadMissing(['customer.consents', 'customer.suppressions', 'visit.business.messagingConfiguration', 'location', 'deliveries.template']);
             $customer = $source->customer ?? throw new RuntimeException('The customer is no longer available.');
+            $this->costEstimator->assertCustomerAvailable($source->visit->business, $customer->id);
             $original = $source->deliveries()->whereNotNull('message_template_id')->latest()->firstOrFail();
             $channel = $original->channel;
             $configuration = $source->visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
@@ -60,8 +59,6 @@ class ManualReviewMessageSender
                 'visit_date' => $source->visit->completed_at->setTimezone($source->location->timezone)->format('F j, Y'),
             ]);
             $cost = $this->costEstimator->estimate($source->visit->business, $channel, $body);
-            $limits = $this->entitlements->for($source->visit->business);
-            abort_if(! $limits['allow_overage'] && $limits['message_credits_remaining'] < $cost['billable_credits'], 422, 'This business has no message credits remaining.');
 
             $delivery = MessageDelivery::create([
                 'business_id' => $source->business_id,

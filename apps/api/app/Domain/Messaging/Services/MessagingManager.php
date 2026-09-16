@@ -37,6 +37,7 @@ class MessagingManager
             abort_unless($dispatch->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now()), 422, 'This message is not due.');
             $visit = $dispatch->visit;
             $customer = $visit->customer ?? throw new RuntimeException('The customer is missing.');
+            $this->costEstimator->assertCustomerAvailable($visit->business, $customer->id);
             $configuration = $visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
             abort_unless($configuration->status === 'active', 422, 'Messaging is not active for this business.');
             $template = $this->template($dispatch);
@@ -76,7 +77,6 @@ class MessagingManager
             ];
             $body = $this->renderer->render($template->body, $values);
             $cost = $this->costEstimator->estimate($visit->business, $channel, $body, (bool) $template->include_media);
-            $this->costEstimator->assertAvailable($visit->business, $cost['billable_credits']);
             if ($channel === 'whatsapp' && ! $template->provider_template_sid) {
                 throw new RuntimeException('An approved Twilio Content Template SID is required for WhatsApp.');
             }

@@ -142,4 +142,4 @@ export async function api<T>(path: string, init: RequestInit = {}, withBusiness 
 }
 
 export type BusinessSummary = { id: string; name: string; slug: string; role: "owner" | "manager" | "viewer" };
-export type SessionUser = { id: string; name: string; email: string; businesses: BusinessSummary[]; platform_roles: string[]; is_platform_admin: boolean };
+export type SessionUser = { id: string; name: string; email: string; avatar_url?: string | null; businesses: BusinessSummary[]; platform_roles: string[]; is_platform_admin: boolean };

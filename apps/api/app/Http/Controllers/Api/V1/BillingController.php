@@ -32,7 +32,12 @@ class BillingController extends Controller
         $business = $request->attributes->get('business');
         $subscriptionModel = BusinessSubscription::with('plan')->where('business_id', $business->id)->first();
         $subscription = $subscriptionModel ? $this->subscriptionPayload($subscriptionModel) : null;
-        $plans = SubscriptionPlan::where('status', 'active')->orderBy('sort_order')->orderBy('monthly_price_minor')->get();
+        $plans = SubscriptionPlan::where('status', 'active')->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
+            ->makeHidden([
+                'overage_price_minor', 'included_message_credits', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
+                'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
+                'estimated_whatsapp_provider_cost_minor', 'allow_overage',
+            ]);
         $invoices = BillingInvoice::where('business_id', $business->id)->latest()->limit(12)->get()
             ->map(fn (BillingInvoice $invoice): array => $this->invoicePayload($invoice))->all();
         $paymentMethods = [];
@@ -76,7 +81,11 @@ class BillingController extends Controller
             'trial_ends_at' => $subscription->trial_ends_at?->toIso8601String(),
             'current_period_ends_at' => $subscription->current_period_ends_at?->toIso8601String(),
             'cancel_at_period_end' => $subscription->cancel_at_period_end,
-            'plan' => $subscription->plan,
+            'plan' => $subscription->plan?->makeHidden([
+                'overage_price_minor', 'included_message_credits', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
+                'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
+                'estimated_whatsapp_provider_cost_minor', 'allow_overage',
+            ]),
         ];
     }
 
@@ -101,6 +110,7 @@ class BillingController extends Controller
         $data = $request->validate(['plan_id' => ['required', Rule::exists('subscription_plans', 'id')->where('status', 'active')], 'interval' => ['required', Rule::in(['month', 'year'])]]);
         $business = $request->attributes->get('business');
         $plan = SubscriptionPlan::findOrFail($data['plan_id']);
+        abort_unless($plan->is_self_serve && $plan->monthly_price_minor > 0, 422, 'This plan requires a conversation with our team.');
         $existing = BusinessSubscription::where('business_id', $business->id)->whereNotNull('stripe_subscription_id')->whereIn('status', ['trialing', 'active', 'past_due'])->first();
         if ($existing) {
             $changed = $stripe->changeSubscription($business, $plan, $data['interval']);

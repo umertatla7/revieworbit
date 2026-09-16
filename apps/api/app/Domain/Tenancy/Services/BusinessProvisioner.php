@@ -46,7 +46,7 @@ class BusinessProvisioner
                 'website_url' => $data['website_url'] ?? null,
                 'account_notes' => $data['account_notes'] ?? null,
                 'operation_mode' => $data['operation_mode'],
-                'plan_code' => $data['plan_code'] ?? 'basic',
+                'plan_code' => $data['plan_code'] ?? 'launch',
                 'messaging_preferences' => [
                     'channel' => $data['preferred_channel'],
                     'quiet_hours_start' => $data['quiet_hours_start'],

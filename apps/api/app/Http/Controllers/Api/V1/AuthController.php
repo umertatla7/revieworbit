@@ -38,12 +38,12 @@ class AuthController extends Controller
             'postal_code' => ['nullable', 'string', 'max:24'],
             'country' => ['required', 'string', 'size:2'],
             'timezone' => ['required', 'timezone'],
-            'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where('status', 'active')],
+            'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where(fn ($query) => $query->where('status', 'active')->where('is_self_serve', true))],
         ]);
 
         $plan = isset($data['plan_id'])
             ? SubscriptionPlan::findOrFail($data['plan_id'])
-            : SubscriptionPlan::where('code', 'basic')->firstOrFail();
+            : SubscriptionPlan::where('code', 'launch')->firstOrFail();
 
         $result = $provisioner->provision([
             ...$data,
@@ -171,6 +171,7 @@ class AuthController extends Controller
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
+            'avatar_url' => filled($user->avatar_path) ? url('/api/v1/profile/avatar') : null,
             'platform_roles' => $platformRoles,
             'is_platform_admin' => $platformRoles->contains(fn (string $role): bool => in_array($role, ['super_admin', 'platform_manager'], true)),
             'businesses' => $user->businessMemberships->map(fn (BusinessUser $membership): array => [

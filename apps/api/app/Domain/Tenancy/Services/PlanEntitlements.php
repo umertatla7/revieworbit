@@ -15,13 +15,15 @@ class PlanEntitlements
     public function for(Business $business): array
     {
         $plan = SubscriptionPlan::where('code', $business->plan_code)->first()
-            ?? SubscriptionPlan::where('code', 'basic')->firstOrFail();
+            ?? SubscriptionPlan::where('code', 'launch')->firstOrFail();
         $locations = $business->locations()->count();
         $templates = MessageTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
         $automations = AutomationRule::where('business_id', $business->id)->where('status', '!=', 'disabled')->count();
         $media = MediaTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
         $reviewDestinations = LocationReviewDestination::where('business_id', $business->id)->where('status', 'active')->count();
         $credits = MessageDelivery::where('business_id', $business->id)->where('created_at', '>=', now()->startOfMonth())->sum('billable_credits');
+        $customersThisMonth = MessageDelivery::where('business_id', $business->id)
+            ->where('created_at', '>=', now()->startOfMonth())->distinct('customer_id')->count('customer_id');
 
         return [
             'plan_code' => $plan->code,
@@ -48,6 +50,9 @@ class PlanEntitlements
             'message_credits_used' => (int) $credits,
             'message_credits_remaining' => max(0, $plan->included_message_credits - $credits),
             'allow_overage' => $plan->allow_overage,
+            'monthly_customer_limit' => $plan->monthly_customer_limit,
+            'customers_used_this_month' => $customersThisMonth,
+            'customers_remaining_this_month' => $plan->monthly_customer_limit === null ? null : max(0, $plan->monthly_customer_limit - $customersThisMonth),
             'review_providers' => $plan->review_providers,
             'available_review_providers' => collect(['google', 'trustpilot', 'facebook', 'yelp', 'other'])->map(fn (string $provider): array => [
                 'provider' => $provider,
@@ -59,6 +64,6 @@ class PlanEntitlements
     public function plan(Business $business): SubscriptionPlan
     {
         return SubscriptionPlan::where('code', $business->plan_code)->first()
-            ?? SubscriptionPlan::where('code', 'basic')->firstOrFail();
+            ?? SubscriptionPlan::where('code', 'launch')->firstOrFail();
     }
 }

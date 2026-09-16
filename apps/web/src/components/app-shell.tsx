@@ -89,7 +89,7 @@ const customerNavigation: NavigationGroup[] = [
       },
       {
         href: "/dashboard/settings",
-        label: "Business settings",
+        label: "Profile settings",
         icon: "settings",
       },
       { href: "/dashboard/help", label: "Help & support", icon: "help" },
@@ -184,6 +184,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       mode="customer"
       userName={user?.name ?? "Loading…"}
       userDetail={user?.email ?? "Customer account"}
+      userAvatarUrl={user?.avatar_url}
       workspaceName={workspace}
       onLogout={logout}
       supportBanner={supportBanner}

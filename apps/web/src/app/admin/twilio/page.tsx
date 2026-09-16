@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PasswordInput } from "@/components/password-input";
 
 type TwilioSetting = {
   configured: boolean;
@@ -78,7 +79,7 @@ export default function AdminTwilioPage() {
           <span className="mt-2 block text-xs font-normal text-ink/45">For Trial testing, use the Account SID shown on the Twilio Console home page.</span>
         </label>
         <label className="label">Auth Token
-          <input className="field font-mono" name="auth_token" type="password" autoComplete="new-password" placeholder={setting?.auth_token_configured ? "Saved securely — leave blank to keep it" : "Enter the Twilio Auth Token"} />
+          <PasswordInput className="field font-mono" name="auth_token" autoComplete="new-password" placeholder={setting?.auth_token_configured ? "Saved securely — leave blank to keep it" : "Enter the Twilio Auth Token"} />
           <span className="mt-2 block text-xs font-normal text-ink/45">ReviewOrbit requires the Auth Token for signed webhooks and parent-account access. It is encrypted at rest and never returned to the browser.</span>
         </label>
         <label className="label">Account mode

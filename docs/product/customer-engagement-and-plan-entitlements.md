@@ -2,7 +2,7 @@
 
 ## Page responsibilities
 
-- **Customers & activity** is the tenant-scoped directory for customers, POS/API/manual visits, SMS delivery, and **Review link clicked** activity. Its filters cover visit recency, missing visits, link clicks, links not clicked, source, consent, and suppression. The customer detail dialog includes full visit/link history, reversible manual SMS suppression, and a controlled custom follow-up. The API rechecks consent, suppression, messaging configuration, destination ownership, and message credits before sending.
+- **Customers & activity** is the tenant-scoped directory for customers, POS/API/manual visits, SMS delivery, and **Review link clicked** activity. Its filters cover visit recency, missing visits, link clicks, links not clicked, source, consent, and suppression. The customer detail dialog includes full visit/link history, reversible manual SMS suppression, and a controlled custom follow-up. The API rechecks consent, suppression, messaging configuration, destination ownership, and monthly customer allowance before starting a review journey.
 - **Message templates** select one location and one active review destination. The selected destination is resolved server-side when an expiring tracking link is created.
 - **Automation rules** own post-visit timing. Each step selects a location-compatible template. Follow-up delays are measured from visit completion, and a follow-up marked `cancel_after_click` is cancelled before sending when an earlier link was clicked.
 
@@ -10,13 +10,13 @@ Tracking never represents a submitted review. ReviewOrbit records redirect click
 
 ## Package configuration
 
-The platform plan catalogue controls location, message-template, automation, automation-step, personalized-media, message-credit, and review-provider allowances. Limits are enforced in the API; hiding a control in the UI is not an entitlement check.
+The platform plan catalogue controls monthly unique customers, locations, message templates, automations, automation steps, personalized media, review destinations, and review-provider allowances. Limits are enforced in the API; hiding a control in the UI is not an entitlement check.
 
-Basic includes one location, one review destination chosen from any supported provider, five active message templates, and one personalized-media template. Growth and Pro retain their larger configured limits. Changing or deleting a template archives it so historical deliveries keep their original relationship and audit trail.
+Launch includes 100 customers per month, one location, and one review destination chosen from any supported provider. Momentum includes 300 customers and one location. Expansion includes 400 customers shared across two locations, with separate location destinations and combined reporting. Enterprise uses administrator-configured custom limits. Changing or deleting a template archives it so historical deliveries keep their original relationship and audit trail.
 
-Message credits are debited per delivery using the plan's channel units. SMS units account for encoded segments. MMS and WhatsApp have separately configurable units. A plan can block sending when included credits are exhausted or permit overage.
+The allowance counts a distinct customer once when their first review request is created in the month. Later follow-up messages to that customer are included. When the allowance is exhausted, new customer journeys pause with an upgrade prompt; ReviewOrbit does not add surprise overage charges.
 
-Admin usage reports aggregate tenant deliveries, delivered/failed counts, credits, and estimated provider cost for the selected month. Provider-cost estimates are stored separately from customer overage price. Estimates default to zero until the platform administrator configures current provider rates; a future reconciliation job may replace them with Twilio's final message price and currency.
+Admin usage reports aggregate unique customers, deliveries, delivered/failed counts, and internal provider cost for the selected month. Provider cost is operational information for ReviewOrbit administrators and is never presented as a customer overage price.
 
 ## Privacy and tenancy
 

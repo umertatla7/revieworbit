@@ -39,17 +39,17 @@ class CustomerModuleTest extends TestCase
         $this->actingAs($owner)->postJson('/api/v1/locations', $payload, $headers)
             ->assertUnprocessable()->assertJsonValidationErrors('review_destinations');
 
-        $business->update(['plan_code' => 'growth']);
+        $business->update(['plan_code' => 'expansion']);
         $this->postJson('/api/v1/locations', $payload, $headers)->assertCreated();
         $this->getJson('/api/v1/business', $headers)
-            ->assertOk()->assertJsonPath('data.entitlements.location_limit', 5)
+            ->assertOk()->assertJsonPath('data.entitlements.location_limit', 2)
             ->assertJsonPath('data.entitlements.review_providers.1', 'trustpilot');
     }
 
     public function test_location_edit_is_tenant_scoped_and_syncs_review_destinations(): void
     {
-        [$ownerA, $businessA] = $this->workspace('Business A', 'growth');
-        [, $businessB] = $this->workspace('Business B', 'growth');
+        [$ownerA, $businessA] = $this->workspace('Business A', 'expansion');
+        [, $businessB] = $this->workspace('Business B', 'expansion');
         $locationB = Location::create(['business_id' => $businessB->id, 'name' => 'Private', 'timezone' => 'UTC']);
         $headers = ['X-Business-ID' => $businessA->id];
 
@@ -65,7 +65,7 @@ class CustomerModuleTest extends TestCase
         $this->assertDatabaseHas('locations', ['id' => $locationA['id'], 'name' => 'Downtown Updated', 'google_review_url' => 'https://g.page/r/new/review']);
     }
 
-    private function workspace(string $name, string $plan = 'basic'): array
+    private function workspace(string $name, string $plan = 'launch'): array
     {
         $owner = User::factory()->create();
         $business = Business::create(['name' => $name, 'slug' => Str::slug($name).'-'.Str::lower(Str::random(4)), 'plan_code' => $plan]);

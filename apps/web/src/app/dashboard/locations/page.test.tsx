@@ -18,8 +18,8 @@ describe("locations and reviews", () => {
         default_timezone: "America/New_York",
         default_country: "US",
         entitlements: {
-          plan_code: "basic",
-          plan_name: "Basic",
+          plan_code: "launch",
+          plan_name: "Launch",
           location_limit: 1,
           locations_used: 1,
           locations_remaining: 0,
@@ -62,7 +62,7 @@ describe("locations and reviews", () => {
     render(<LocationsPage />);
     expect(await screen.findByText("Main Street")).toBeInTheDocument();
     expect(
-      screen.getByText("Your Basic plan location limit is reached"),
+      screen.getByText("Your Launch plan location limit is reached"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "+ Add location" }),
@@ -75,7 +75,7 @@ describe("locations and reviews", () => {
       screen.getByDisplayValue("https://g.page/r/example/review"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Basic includes one review link of your choice."),
+      screen.getByText("Launch includes one review link of your choice."),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("option", { name: "Trustpilot" }),

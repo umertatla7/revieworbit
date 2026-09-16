@@ -66,7 +66,7 @@ class TestBusinessSeeder extends Seeder
                     ['subscription_plan_id' => SubscriptionPlan::where('code', $fixture['plan'])->value('id')],
                 );
 
-                $locationCount = ['basic' => 1, 'growth' => 2, 'pro' => 3][$fixture['plan']];
+                $locationCount = ['launch' => 1, 'momentum' => 1, 'expansion' => 2][$fixture['plan']];
                 $locations = collect(range(1, $locationCount))->map(function (int $number) use ($business, $fixture): Location {
                     $location = Location::updateOrCreate(
                         ['business_id' => $business->id, 'external_reference' => 'test-location-'.$number],
@@ -80,7 +80,7 @@ class TestBusinessSeeder extends Seeder
                     return $location;
                 });
 
-                $templateCount = ['basic' => 1, 'growth' => 2, 'pro' => 3][$fixture['plan']];
+                $templateCount = ['launch' => 1, 'momentum' => 2, 'expansion' => 3][$fixture['plan']];
                 $templates = collect(range(1, $templateCount))->map(function (int $number) use ($business, $locations): MessageTemplate {
                     $location = $locations[($number - 1) % $locations->count()];
                     $destination = $location->reviewDestinations()->firstOrFail();
@@ -135,16 +135,16 @@ class TestBusinessSeeder extends Seeder
     private function businesses(): array
     {
         return [
-            ['name' => 'Northstar Dental', 'slug' => 'test-northstar-dental', 'owner' => 'Avery Morgan', 'email' => 'owner.basic01@revieworbit.test', 'plan' => 'basic', 'industry' => 'dental', 'timezone' => 'America/New_York'],
-            ['name' => 'Maple Auto Care', 'slug' => 'test-maple-auto-care', 'owner' => 'Jordan Lee', 'email' => 'owner.basic02@revieworbit.test', 'plan' => 'basic', 'industry' => 'automotive', 'timezone' => 'America/Chicago'],
-            ['name' => 'Willow Wellness', 'slug' => 'test-willow-wellness', 'owner' => 'Taylor Brooks', 'email' => 'owner.basic03@revieworbit.test', 'plan' => 'basic', 'industry' => 'beauty_wellness', 'timezone' => 'America/Denver'],
-            ['name' => 'Harbor Home Services', 'slug' => 'test-harbor-home-services', 'owner' => 'Casey Davis', 'email' => 'owner.basic04@revieworbit.test', 'plan' => 'basic', 'industry' => 'home_services', 'timezone' => 'America/Los_Angeles'],
-            ['name' => 'Cedar & Stone Salon', 'slug' => 'test-cedar-stone-salon', 'owner' => 'Riley Parker', 'email' => 'owner.growth01@revieworbit.test', 'plan' => 'growth', 'industry' => 'beauty_wellness', 'timezone' => 'America/New_York'],
-            ['name' => 'Summit Family Clinic', 'slug' => 'test-summit-family-clinic', 'owner' => 'Morgan Reed', 'email' => 'owner.growth02@revieworbit.test', 'plan' => 'growth', 'industry' => 'healthcare', 'timezone' => 'America/Chicago'],
-            ['name' => 'Riverbend Café', 'slug' => 'test-riverbend-cafe', 'owner' => 'Cameron Hayes', 'email' => 'owner.growth03@revieworbit.test', 'plan' => 'growth', 'industry' => 'restaurant', 'timezone' => 'America/Denver'],
-            ['name' => 'Brightline Hospitality', 'slug' => 'test-brightline-hospitality', 'owner' => 'Quinn Foster', 'email' => 'owner.pro01@revieworbit.test', 'plan' => 'pro', 'industry' => 'hospitality', 'timezone' => 'America/New_York'],
-            ['name' => 'Oakridge Retail Group', 'slug' => 'test-oakridge-retail', 'owner' => 'Skyler Bennett', 'email' => 'owner.pro02@revieworbit.test', 'plan' => 'pro', 'industry' => 'retail', 'timezone' => 'America/Chicago'],
-            ['name' => 'Atlas Professional Partners', 'slug' => 'test-atlas-professional', 'owner' => 'Emerson Ward', 'email' => 'owner.pro03@revieworbit.test', 'plan' => 'pro', 'industry' => 'professional_services', 'timezone' => 'America/Los_Angeles'],
+            ['name' => 'Northstar Dental', 'slug' => 'test-northstar-dental', 'owner' => 'Avery Morgan', 'email' => 'owner.basic01@revieworbit.test', 'plan' => 'launch', 'industry' => 'dental', 'timezone' => 'America/New_York'],
+            ['name' => 'Maple Auto Care', 'slug' => 'test-maple-auto-care', 'owner' => 'Jordan Lee', 'email' => 'owner.basic02@revieworbit.test', 'plan' => 'launch', 'industry' => 'automotive', 'timezone' => 'America/Chicago'],
+            ['name' => 'Willow Wellness', 'slug' => 'test-willow-wellness', 'owner' => 'Taylor Brooks', 'email' => 'owner.basic03@revieworbit.test', 'plan' => 'launch', 'industry' => 'beauty_wellness', 'timezone' => 'America/Denver'],
+            ['name' => 'Harbor Home Services', 'slug' => 'test-harbor-home-services', 'owner' => 'Casey Davis', 'email' => 'owner.basic04@revieworbit.test', 'plan' => 'launch', 'industry' => 'home_services', 'timezone' => 'America/Los_Angeles'],
+            ['name' => 'Cedar & Stone Salon', 'slug' => 'test-cedar-stone-salon', 'owner' => 'Riley Parker', 'email' => 'owner.growth01@revieworbit.test', 'plan' => 'momentum', 'industry' => 'beauty_wellness', 'timezone' => 'America/New_York'],
+            ['name' => 'Summit Family Clinic', 'slug' => 'test-summit-family-clinic', 'owner' => 'Morgan Reed', 'email' => 'owner.growth02@revieworbit.test', 'plan' => 'momentum', 'industry' => 'healthcare', 'timezone' => 'America/Chicago'],
+            ['name' => 'Riverbend Café', 'slug' => 'test-riverbend-cafe', 'owner' => 'Cameron Hayes', 'email' => 'owner.growth03@revieworbit.test', 'plan' => 'momentum', 'industry' => 'restaurant', 'timezone' => 'America/Denver'],
+            ['name' => 'Brightline Hospitality', 'slug' => 'test-brightline-hospitality', 'owner' => 'Quinn Foster', 'email' => 'owner.pro01@revieworbit.test', 'plan' => 'expansion', 'industry' => 'hospitality', 'timezone' => 'America/New_York'],
+            ['name' => 'Oakridge Retail Group', 'slug' => 'test-oakridge-retail', 'owner' => 'Skyler Bennett', 'email' => 'owner.pro02@revieworbit.test', 'plan' => 'expansion', 'industry' => 'retail', 'timezone' => 'America/Chicago'],
+            ['name' => 'Atlas Professional Partners', 'slug' => 'test-atlas-professional', 'owner' => 'Emerson Ward', 'email' => 'owner.pro03@revieworbit.test', 'plan' => 'expansion', 'industry' => 'professional_services', 'timezone' => 'America/Los_Angeles'],
         ];
     }
 }

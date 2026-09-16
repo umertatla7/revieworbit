@@ -2,6 +2,7 @@
 
 namespace App\Domain\Messaging\Services;
 
+use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Templates\Services\TemplateRenderer;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Services\PlanEntitlements;
@@ -32,9 +33,15 @@ class MessageCostEstimator
         ];
     }
 
-    public function assertAvailable(Business $business, int $credits): void
+    public function assertCustomerAvailable(Business $business, string $customerId): void
     {
+        Business::query()->whereKey($business->id)->lockForUpdate()->firstOrFail();
         $limits = $this->entitlements->for($business);
-        abort_if(! $limits['allow_overage'] && $limits['message_credits_remaining'] < $credits, 422, 'This business has no message credits remaining.');
+        if ($limits['monthly_customer_limit'] === null) {
+            return;
+        }
+        $alreadyCounted = MessageDelivery::where('business_id', $business->id)
+            ->where('customer_id', $customerId)->where('created_at', '>=', now()->startOfMonth())->exists();
+        abort_if(! $alreadyCounted && $limits['customers_remaining_this_month'] < 1, 422, 'This plan has reached its monthly customer limit. Upgrade to start review requests for more customers.');
     }
 }

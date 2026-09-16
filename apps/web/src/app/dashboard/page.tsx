@@ -16,8 +16,8 @@ type Entitlements = {
   media_templates_used: number;
   automation_limit: number;
   automations_used: number;
-  included_message_credits: number;
-  message_credits_used: number;
+  monthly_customer_limit: number | null;
+  customers_used_this_month: number;
 };
 type Business = {
   name: string;
@@ -151,7 +151,7 @@ export default function DashboardPage() {
         <Metric
           label="Messages sent"
           value={review.messages_sent}
-          detail={`${entitlements?.message_credits_used ?? 0} credits used this month`}
+          detail="Follow-up messages are included"
         />
         <Metric
           label="Review link clicked"
@@ -209,10 +209,10 @@ export default function DashboardPage() {
               href="/dashboard/automations"
             />
             <Usage
-              label="Message credits"
-              used={entitlements?.message_credits_used}
-              limit={entitlements?.included_message_credits}
-              href="/dashboard/messages"
+              label="Customers this month"
+              used={entitlements?.customers_used_this_month}
+              limit={entitlements?.monthly_customer_limit ?? undefined}
+              href="/dashboard/billing"
             />
           </div>
         </section>
@@ -316,12 +316,12 @@ function Metric({
 function Usage({
   label,
   used = 0,
-  limit = 0,
+  limit,
   href,
 }: {
   label: string;
   used?: number;
-  limit?: number;
+  limit?: number | null;
   href: string;
 }) {
   const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
@@ -333,7 +333,7 @@ function Usage({
       <div className="flex items-center justify-between text-xs">
         <strong>{label}</strong>
         <span>
-          {used} / {limit}
+          {used} / {limit ?? "Custom"}
         </span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper">

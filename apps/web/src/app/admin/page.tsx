@@ -262,7 +262,7 @@ export default function AdminPage() {
               </div>
               <div className="space-y-2">
                 <select aria-label={`Plan for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs capitalize" value={business.plan_code} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { plan_code: event.target.value })}>
-                  <option value="basic">Basic plan</option><option value="growth">Growth plan</option><option value="pro">Pro plan</option>
+                  <option value="launch">Launch plan</option><option value="momentum">Momentum plan</option><option value="expansion">Expansion plan</option><option value="enterprise">Enterprise plan</option>
                 </select>
                 <select aria-label={`Status for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs" value={business.status} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { status: event.target.value })}>
                   <option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option>

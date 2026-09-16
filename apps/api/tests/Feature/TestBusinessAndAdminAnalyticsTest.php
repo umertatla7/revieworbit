@@ -24,17 +24,17 @@ class TestBusinessAndAdminAnalyticsTest extends TestCase
 
         $businesses = Business::where('slug', 'like', 'test-%')->withCount(['customers', 'locations'])->get();
         $this->assertCount(10, $businesses);
-        $this->assertSame(4, $businesses->where('plan_code', 'basic')->count());
-        $this->assertSame(3, $businesses->where('plan_code', 'growth')->count());
-        $this->assertSame(3, $businesses->where('plan_code', 'pro')->count());
+        $this->assertSame(4, $businesses->where('plan_code', 'launch')->count());
+        $this->assertSame(3, $businesses->where('plan_code', 'momentum')->count());
+        $this->assertSame(3, $businesses->where('plan_code', 'expansion')->count());
         foreach ($businesses as $business) {
             $this->assertSame(4, $business->customers_count);
             $this->assertSame(8, $business->customers()->withCount('visits')->get()->sum('visits_count'));
             $this->assertSame(8, $business->hasMany(MessageDelivery::class)->where('provider', 'fixture')->count());
         }
-        $this->assertDatabaseHas('subscription_plans', ['code' => 'basic', 'location_limit' => 1, 'template_limit' => 5, 'media_template_limit' => 1, 'review_destination_limit' => 1]);
-        $this->assertDatabaseHas('subscription_plans', ['code' => 'growth', 'location_limit' => 5, 'template_limit' => 5, 'media_template_limit' => 5, 'review_destination_limit' => 5]);
-        $this->assertDatabaseHas('subscription_plans', ['code' => 'pro', 'location_limit' => 15, 'template_limit' => 15, 'media_template_limit' => 15, 'review_destination_limit' => 15]);
+        $this->assertDatabaseHas('subscription_plans', ['code' => 'launch', 'monthly_customer_limit' => 100, 'location_limit' => 1, 'template_limit' => 5, 'media_template_limit' => 1, 'review_destination_limit' => 1]);
+        $this->assertDatabaseHas('subscription_plans', ['code' => 'momentum', 'monthly_customer_limit' => 300, 'location_limit' => 1]);
+        $this->assertDatabaseHas('subscription_plans', ['code' => 'expansion', 'monthly_customer_limit' => 400, 'location_limit' => 2]);
         $this->assertDatabaseMissing('message_deliveries', ['provider' => 'twilio']);
     }
 

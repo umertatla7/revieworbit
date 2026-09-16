@@ -65,7 +65,7 @@ class PlatformAndOnboardingTest extends TestCase
 
     public function test_customer_signup_assigns_the_selected_plan_and_keeps_location_setup_short(): void
     {
-        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
         $response = $this->withHeader('Origin', 'https://revieworbit.test')->postJson('/api/v1/auth/register', [
             'name' => 'Jamie Owner', 'email' => 'jamie@example.com',
             'password' => 'ReviewOrbit123!', 'password_confirmation' => 'ReviewOrbit123!',
@@ -75,7 +75,7 @@ class PlatformAndOnboardingTest extends TestCase
         ])->assertCreated();
 
         $businessId = $response->json('data.businesses.0.id');
-        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'plan_code' => 'growth']);
+        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'plan_code' => 'momentum']);
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessId, 'subscription_plan_id' => $plan->id]);
         $this->assertDatabaseHas('locations', ['business_id' => $businessId, 'name' => 'Main location']);
     }

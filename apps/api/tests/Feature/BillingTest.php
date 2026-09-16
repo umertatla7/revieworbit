@@ -84,7 +84,7 @@ class BillingTest extends TestCase
     {
         [$ownerA, $businessA] = $this->owner('A');
         [$ownerB, $businessB] = $this->owner('B');
-        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
         $plan->update(['stripe_monthly_price_id' => 'price_growth_month']);
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
         Http::fake([
@@ -101,15 +101,15 @@ class BillingTest extends TestCase
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessA->id, 'stripe_customer_id' => 'cus_test_a']);
 
         $this->actingAs($ownerB)->getJson('/api/v1/billing', ['X-Business-ID' => $businessA->id])->assertNotFound();
-        $this->getJson('/api/v1/billing', ['X-Business-ID' => $businessB->id])->assertOk()->assertJsonPath('data.current_plan_code', 'basic');
+        $this->getJson('/api/v1/billing', ['X-Business-ID' => $businessB->id])->assertOk()->assertJsonPath('data.current_plan_code', 'launch');
     }
 
     public function test_public_plans_are_available_for_signup_without_exposing_stripe_ids(): void
     {
-        SubscriptionPlan::where('code', 'basic')->update(['stripe_product_id' => 'prod_private', 'stripe_monthly_price_id' => 'price_private']);
+        SubscriptionPlan::where('code', 'launch')->update(['stripe_product_id' => 'prod_private', 'stripe_monthly_price_id' => 'price_private']);
 
         $this->getJson('/api/v1/plans')->assertOk()
-            ->assertJsonPath('data.0.code', 'basic')
+            ->assertJsonPath('data.0.code', 'launch')
             ->assertJsonMissing(['stripe_product_id' => 'prod_private'])
             ->assertJsonMissing(['stripe_monthly_price_id' => 'price_private']);
     }
@@ -117,7 +117,7 @@ class BillingTest extends TestCase
     public function test_owner_changes_an_existing_subscription_in_app_with_proration(): void
     {
         [$owner, $business] = $this->owner('Plan change');
-        $plan = SubscriptionPlan::where('code', 'pro')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'expansion')->firstOrFail();
         $plan->update(['stripe_monthly_price_id' => 'price_pro_month']);
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
         BusinessSubscription::create(['business_id' => $business->id, 'stripe_customer_id' => 'cus_change', 'stripe_subscription_id' => 'sub_change', 'status' => 'active']);
@@ -134,7 +134,7 @@ class BillingTest extends TestCase
         ]);
 
         $this->actingAs($owner)->postJson('/api/v1/billing/checkout', ['plan_id' => $plan->id, 'interval' => 'month'], ['X-Business-ID' => $business->id])
-            ->assertOk()->assertJsonPath('data.subscription.plan.code', 'pro');
+            ->assertOk()->assertJsonPath('data.subscription.plan.code', 'expansion');
         Http::assertSent(fn (StripeRequest $request): bool => $request->method() === 'POST'
             && str_ends_with($request->url(), '/v1/subscriptions/sub_change')
             && data_get($request->data(), 'items.0.price') === 'price_pro_month'
@@ -144,7 +144,7 @@ class BillingTest extends TestCase
     public function test_plan_sync_sends_stripe_compatible_boolean_values_and_publishes_both_prices(): void
     {
         $admin = $this->admin();
-        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
         $plan->update(['stripe_product_id' => null, 'stripe_monthly_price_id' => null, 'stripe_annual_price_id' => null]);
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
         $priceNumber = 0;
@@ -250,10 +250,10 @@ class BillingTest extends TestCase
     {
         $admin = $this->admin();
         [, $business] = $this->owner('Assigned plan');
-        $plan = SubscriptionPlan::where('code', 'pro')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'expansion')->firstOrFail();
 
-        $this->actingAs($admin)->patchJson("/api/v1/admin/businesses/{$business->id}", ['plan_code' => 'pro'])
-            ->assertOk()->assertJsonPath('data.plan_code', 'pro');
+        $this->actingAs($admin)->patchJson("/api/v1/admin/businesses/{$business->id}", ['plan_code' => 'expansion'])
+            ->assertOk()->assertJsonPath('data.plan_code', 'expansion');
 
         $this->assertDatabaseHas('business_subscriptions', [
             'business_id' => $business->id,
@@ -264,7 +264,7 @@ class BillingTest extends TestCase
     public function test_verified_idempotent_webhook_updates_only_the_mapped_business_subscription(): void
     {
         [, $business] = $this->owner('Webhook');
-        $plan = SubscriptionPlan::where('code', 'pro')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'expansion')->firstOrFail();
         $plan->update(['stripe_monthly_price_id' => 'price_pro_month']);
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_signing', 'mode' => 'test', 'status' => 'verified']);
         $timestamp = time();
@@ -282,7 +282,7 @@ class BillingTest extends TestCase
 
         $this->call('POST', '/api/v1/webhooks/stripe', [], [], [], $this->transformHeadersToServerVars($headers), $payload)->assertOk();
         $this->call('POST', '/api/v1/webhooks/stripe', [], [], [], $this->transformHeadersToServerVars($headers), $payload)->assertOk();
-        $this->assertSame('pro', $business->fresh()->plan_code);
+        $this->assertSame('expansion', $business->fresh()->plan_code);
         $this->assertDatabaseCount('stripe_webhook_events', 1);
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $business->id, 'stripe_subscription_id' => 'sub_test', 'status' => 'active']);
     }
@@ -290,7 +290,7 @@ class BillingTest extends TestCase
     public function test_billing_page_returns_live_masked_payment_and_invoice_details_from_stripe(): void
     {
         [$owner, $business] = $this->owner('Live billing');
-        $plan = SubscriptionPlan::where('code', 'growth')->firstOrFail();
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
         $plan->update(['stripe_monthly_price_id' => 'price_growth_month']);
         PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
         BusinessSubscription::create(['business_id' => $business->id, 'subscription_plan_id' => $plan->id, 'stripe_customer_id' => 'cus_live', 'stripe_subscription_id' => 'sub_live', 'status' => 'active']);
@@ -305,7 +305,7 @@ class BillingTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.has_stripe_customer', true)
             ->assertJsonPath('data.can_manage_billing', true)
-            ->assertJsonPath('data.subscription.plan.code', 'growth')
+            ->assertJsonPath('data.subscription.plan.code', 'momentum')
             ->assertJsonPath('data.payment_methods.0.last4', '4242')
             ->assertJsonPath('data.payment_methods.0.is_default', true)
             ->assertJsonPath('data.invoices.0.number', 'RO-001')

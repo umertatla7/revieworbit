@@ -44,6 +44,7 @@ export function WorkspaceShell({
   mode,
   userName,
   userDetail,
+  userAvatarUrl,
   workspaceName,
   onLogout,
   supportBanner,
@@ -53,6 +54,7 @@ export function WorkspaceShell({
   mode: "platform" | "customer";
   userName: string;
   userDetail: string;
+  userAvatarUrl?: string | null;
   workspaceName?: string;
   onLogout: () => void;
   supportBanner?: React.ReactNode;
@@ -189,8 +191,8 @@ export function WorkspaceShell({
       </nav>
       <div className="border-t border-white/8 p-4">
         <div className="flex items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-semibold">
-            {initials(userName)}
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/10 bg-cover bg-center text-xs font-semibold" style={userAvatarUrl ? { backgroundImage: `url(${userAvatarUrl})` } : undefined}>
+            {!userAvatarUrl && initials(userName)}
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold">{userName}</p>

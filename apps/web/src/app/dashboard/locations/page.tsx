@@ -313,7 +313,7 @@ function LocationDialog({
   const [basicProvider, setBasicProvider] = useState<Provider>(
     current?.review_destinations[0]?.provider ?? "google",
   );
-  const basic = business.entitlements.plan_code === "basic";
+  const basic = business.entitlements.plan_code === "launch";
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4">
       <section
@@ -437,7 +437,7 @@ function LocationDialog({
             title="Review destinations"
             description={
               basic
-                ? "Basic includes one review link of your choice."
+                ? "Launch includes one review link of your choice."
                 : `Your ${business.entitlements.plan_name} plan includes up to ${business.entitlements.review_destination_limit} review links.`
             }
           >

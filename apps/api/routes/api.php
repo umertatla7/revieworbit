@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\PlatformStripeController;
 use App\Http\Controllers\Api\V1\PlatformToastController;
 use App\Http\Controllers\Api\V1\PlatformTwilioController;
 use App\Http\Controllers\Api\V1\PosIntegrationController;
+use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\ReviewLinkActivityController;
 use App\Http\Controllers\Api\V1\SquareIntegrationController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
@@ -115,9 +116,14 @@ Route::prefix('api/v1')->group(function (): void {
             Route::get('/square/appointments', [SquareIntegrationController::class, 'appointments']);
             Route::get('/messaging-configuration', [MessagingConfigurationController::class, 'show']);
             Route::get('/billing', [BillingController::class, 'show']);
+            Route::get('/profile', [ProfileController::class, 'show']);
+            Route::get('/profile/avatar', [ProfileController::class, 'serveAvatar']);
             Route::get('/message-deliveries', [MessagingConfigurationController::class, 'deliveries']);
             Route::middleware('business.role:owner,manager')->group(function (): void {
                 Route::patch('/business', [BusinessController::class, 'update']);
+                Route::patch('/profile', [ProfileController::class, 'update']);
+                Route::post('/profile/avatar', [ProfileController::class, 'avatar']);
+                Route::put('/profile/password', [ProfileController::class, 'password'])->middleware('throttle:5,1');
                 Route::patch('/onboarding', [OnboardingController::class, 'update']);
                 Route::post('/onboarding/complete', [OnboardingController::class, 'complete']);
                 Route::post('/locations', [BusinessController::class, 'storeLocation']);

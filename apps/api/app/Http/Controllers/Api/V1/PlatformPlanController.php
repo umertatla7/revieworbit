@@ -43,6 +43,7 @@ class PlatformPlanController extends Controller
     public function syncStripe(Request $request, string $plan, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
         $model = SubscriptionPlan::findOrFail($plan);
+        abort_unless($model->is_self_serve && $model->monthly_price_minor > 0, 422, 'Sales-assisted plans do not require a Stripe price.');
         $model = $stripe->syncPlan($model);
         $auditor->record($request, 'subscription_plan.stripe_synced', $model, ['stripe_product_id' => $model->stripe_product_id]);
 
@@ -60,7 +61,9 @@ class PlatformPlanController extends Controller
             'currency' => ['sometimes', 'string', 'size:3'],
             'trial_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
             'badge' => ['nullable', 'string', 'max:40'],
+            'cta_label' => ['sometimes', 'string', 'max:60'],
             'is_featured' => ['sometimes', 'boolean'],
+            'is_self_serve' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'features' => ['sometimes', 'array', 'max:30'],
             'features.*' => ['string', 'max:120'],
@@ -71,6 +74,7 @@ class PlatformPlanController extends Controller
             'media_template_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'review_destination_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'included_message_credits' => ['sometimes', 'integer', 'min:0'],
+            'monthly_customer_limit' => ['nullable', 'integer', 'min:1'],
             'sms_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'mms_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'whatsapp_credit_units' => ['sometimes', 'integer', 'min:1', 'max:100'],
@@ -109,12 +113,15 @@ class PlatformPlanController extends Controller
             $credits = (clone $deliveries)->sum('billable_credits');
             $estimatedCost = (clone $deliveries)->sum('estimated_cost_minor');
             $failed = (clone $deliveries)->whereIn('status', ['failed', 'undelivered'])->count();
+            $customers = (clone $deliveries)->distinct('customer_id')->count('customer_id');
 
             return [
                 'business_id' => $business->id,
                 'business_name' => $business->name,
                 'plan_code' => $business->plan_code,
                 'messages' => (clone $deliveries)->count(),
+                'customers' => $customers,
+                'customer_limit' => $plan?->monthly_customer_limit,
                 'delivered' => (clone $deliveries)->where('status', 'delivered')->count(),
                 'failed' => $failed,
                 'credits_used' => (int) $credits,

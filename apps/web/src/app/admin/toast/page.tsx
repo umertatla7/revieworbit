@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { PasswordInput } from "@/components/password-input";
 
 type ToastSetting = {
   configured: boolean; ready_for_connections: boolean; environment: "sandbox" | "production";
@@ -77,6 +78,6 @@ export default function AdminToastPage() {
   </div>;
 }
 
-function Secret({ name, label, configured }: { name: string; label: string; configured?: boolean }) { return <label className="label">{label}<input className="field font-mono" name={name} type="password" autoComplete="new-password" placeholder={configured ? "Saved securely — leave blank to keep it" : `Enter ${label.toLowerCase()}`} /></label>; }
+function Secret({ name, label, configured }: { name: string; label: string; configured?: boolean }) { return <label className="label">{label}<PasswordInput className="field font-mono" name={name} autoComplete="new-password" placeholder={configured ? "Saved securely — leave blank to keep it" : `Enter ${label.toLowerCase()}`} /></label>; }
 function Row({ label, value }: { label: string; value: string }) { return <div className="flex justify-between"><dt className="text-white/55">{label}</dt><dd className="font-semibold">{value}</dd></div>; }
 function Webhook({ label, value }: { label: string; value?: string }) { return <div className="mt-4"><p className="text-xs text-ink/45">{label}</p><code className="mt-1 block break-all text-[11px]">{value}</code></div>; }
