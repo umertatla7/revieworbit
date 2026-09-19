@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Billing\Models\BusinessSubscription;
+use App\Domain\Billing\Services\CustomPlanManager;
 use App\Domain\Billing\Services\CustomPlanQuoteCalculator;
 use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Messaging\Models\MessageDelivery;
@@ -64,6 +66,51 @@ class PlatformPlanController extends Controller
         ]);
 
         return response()->json(['data' => $calculator->calculate($data)]);
+    }
+
+    public function assignCustom(Request $request, CustomPlanQuoteCalculator $calculator, CustomPlanManager $manager, StripeGateway $stripe, Auditor $auditor): JsonResponse
+    {
+        $data = $this->quoteData($request, true);
+        $business = Business::findOrFail($data['business_id']);
+        $quote = $calculator->calculate($data);
+        $plan = $manager->configure($business, $quote, 0);
+        $subscription = BusinessSubscription::firstOrCreate(['business_id' => $business->id]);
+        $changed = null;
+
+        if ($subscription->stripe_subscription_id && in_array($subscription->status, ['trialing', 'active', 'past_due'], true)) {
+            $interval = $subscription->billing_interval === 'year' ? 'year' : 'month';
+            $changed = $stripe->changeSubscription($business, $plan, $interval);
+            $subscription->update([
+                'subscription_plan_id' => $plan->id,
+                'stripe_price_id' => $interval === 'year' ? $plan->stripe_annual_price_id : $plan->stripe_monthly_price_id,
+                'billing_interval' => $interval,
+            ]);
+        } else {
+            $subscription->update(['subscription_plan_id' => $plan->id]);
+        }
+        $business->update(['plan_code' => $plan->code]);
+        $auditor->record($request, 'subscription_plan.custom_assigned', $business, [
+            'plan_id' => $plan->id,
+            'monthly_price_minor' => $plan->monthly_price_minor,
+            'stripe_subscription_changed' => $changed !== null,
+        ]);
+
+        return response()->json(['data' => ['plan' => $plan, 'business' => ['id' => $business->id, 'name' => $business->name], 'subscription' => $changed]], 201);
+    }
+
+    /** @return array<string, mixed> */
+    private function quoteData(Request $request, bool $withBusiness = false): array
+    {
+        return $request->validate([
+            'business_id' => [$withBusiness ? 'required' : 'sometimes', 'ulid', Rule::exists('businesses', 'id')],
+            'monthly_customers' => ['required', 'integer', 'min:1', 'max:100000'],
+            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
+            'messages_per_customer' => ['required', 'integer', 'min:1', 'max:10'],
+            'monthly_messages' => ['nullable', 'integer', 'min:1', 'max:1000000'],
+            'sms_segments_per_message' => ['required', 'integer', 'min:1', 'max:10'],
+            'mms_percent' => ['required', 'integer', 'min:0', 'max:100'],
+            'support_level' => ['required', Rule::in(['standard', 'priority', 'dedicated'])],
+        ]);
     }
 
     private function validated(Request $request, bool $creating = false): array

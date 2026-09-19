@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 type Plan = {
@@ -16,6 +16,12 @@ type Plan = {
   review_providers: string[];
 };
 type Usage = { business_id: string; business_name: string; plan_code: string; messages: number; customers: number; customer_limit: number | null };
+type Business = { id: string; name: string; plan_code: string };
+type QuoteRequest = {
+  monthly_customers: number; locations: number; messages_per_customer: number;
+  monthly_messages: number | null; sms_segments_per_message: number;
+  mms_percent: number; support_level: string;
+};
 type Quote = {
   currency: string; monthly_price_minor: number; annual_price_minor: number;
   gross_profit_minor: number; gross_margin_percent: number; estimated_monthly_cost_minor: number;
@@ -36,18 +42,34 @@ const emptyPlan: Partial<Plan> = {
   review_providers: ["google"],
 };
 
+const initialQuoteRequest: QuoteRequest = {
+  monthly_customers: 100, locations: 1, messages_per_customer: 2,
+  monthly_messages: null, sms_segments_per_message: 1, mms_percent: 0,
+  support_level: "standard",
+};
+
 export default function AdminBillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [usage, setUsage] = useState<Usage[]>([]);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState("");
   const [editing, setEditing] = useState<Partial<Plan> | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [assignBusy, setAssignBusy] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>(initialQuoteRequest);
+  const quoteSequence = useRef(0);
 
   const load = useCallback(async () => {
     const results = await Promise.allSettled([
       api<{ data: Plan[] }>("/api/v1/admin/plans").then((response) => setPlans(response.data)),
       api<{ data: Usage[] }>("/api/v1/admin/usage").then((response) => setUsage(response.data)),
+      api<{ data: Business[] }>("/api/v1/admin/businesses").then((response) => {
+        setBusinesses(response.data);
+        setSelectedBusinessId((current) => current || response.data[0]?.id || "");
+      }),
     ]);
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") {
@@ -59,6 +81,10 @@ export default function AdminBillingPage() {
     void Promise.allSettled([
       api<{ data: Plan[] }>("/api/v1/admin/plans").then((response) => setPlans(response.data)),
       api<{ data: Usage[] }>("/api/v1/admin/usage").then((response) => setUsage(response.data)),
+      api<{ data: Business[] }>("/api/v1/admin/businesses").then((response) => {
+        setBusinesses(response.data);
+        setSelectedBusinessId((current) => current || response.data[0]?.id || "");
+      }),
     ]).then((results) => {
       const failure = results.find((result) => result.status === "rejected");
       if (failure?.status === "rejected") {
@@ -130,25 +156,45 @@ export default function AdminBillingPage() {
     } finally { setBusy(false); }
   }
 
-  async function calculateQuote(data: FormData) {
-    setBusy(true); setMessage("");
+  const calculateQuote = useCallback(async (request: QuoteRequest) => {
+    const sequence = ++quoteSequence.current;
+    setQuoteBusy(true);
     try {
       const result = await api<{ data: Quote }>("/api/v1/admin/plans/quote", {
         method: "POST",
-        body: JSON.stringify({
-          monthly_customers: Number(data.get("monthly_customers")),
-          locations: Number(data.get("locations")),
-          messages_per_customer: Number(data.get("messages_per_customer")),
-          monthly_messages: data.get("monthly_messages") ? Number(data.get("monthly_messages")) : null,
-          sms_segments_per_message: Number(data.get("sms_segments_per_message")),
-          mms_percent: Number(data.get("mms_percent")),
-          support_level: data.get("support_level"),
-        }),
+        body: JSON.stringify(request),
       });
-      setQuote(result.data);
+      if (sequence === quoteSequence.current) setQuote(result.data);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to calculate this package.");
-    } finally { setBusy(false); }
+      if (sequence === quoteSequence.current) setMessage(error instanceof Error ? error.message : "Unable to calculate this package.");
+    } finally { if (sequence === quoteSequence.current) setQuoteBusy(false); }
+  }, []);
+
+  useEffect(() => {
+    if (quoteRequest.monthly_customers < 1 || quoteRequest.locations < 1 || quoteRequest.messages_per_customer < 1 || quoteRequest.sms_segments_per_message < 1) return;
+    const timer = window.setTimeout(() => void calculateQuote(quoteRequest), 350);
+    return () => window.clearTimeout(timer);
+  }, [calculateQuote, quoteRequest]);
+
+  function updateQuote<K extends keyof QuoteRequest>(key: K, value: QuoteRequest[K]) {
+    setQuoteRequest((current) => ({ ...current, [key]: value }));
+  }
+
+  async function assignCustomPlan() {
+    if (!selectedBusinessId || !quote) return;
+    const business = businesses.find((item) => item.id === selectedBusinessId);
+    if (!window.confirm(`Create this private package and assign it to ${business?.name ?? "this customer"}? Active Stripe subscriptions will change immediately with prorations and no new trial.`)) return;
+    setAssignBusy(true); setMessage("");
+    try {
+      await api("/api/v1/admin/plans/custom-assign", {
+        method: "POST",
+        body: JSON.stringify({ business_id: selectedBusinessId, ...quoteRequest }),
+      });
+      setMessage(`Custom package created, synchronized with Stripe, and assigned to ${business?.name ?? "the customer"}. No trial was added.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to assign this custom package.");
+    } finally { setAssignBusy(false); }
   }
 
   function createFromQuote() {
@@ -196,19 +242,20 @@ export default function AdminBillingPage() {
       )}
 
       <section className="mt-7 overflow-hidden rounded-2xl border border-ink/8 bg-white">
-        <header className="border-b border-ink/8 p-5"><p className="eyebrow">Internal pricing tool</p><h2 className="mt-1 text-xl font-semibold">Custom package calculator</h2><p className="mt-1 text-sm text-ink/50">Model customer capacity, message mix, Twilio cost, Stripe fees, and margin. Estimates stay visible only to platform administrators.</p></header>
+        <header className="border-b border-ink/8 p-5"><p className="eyebrow">Customer-specific package</p><h2 className="mt-1 text-xl font-semibold">Build and assign a custom plan</h2><p className="mt-1 text-sm text-ink/50">Choose a customer, adjust the package, and watch the price update automatically. Assigning an existing subscriber changes their Stripe subscription without starting another trial.</p></header>
         <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1.15fr]">
-          <form action={calculateQuote} className="grid content-start gap-4 sm:grid-cols-2">
-            <Field name="monthly_customers" label="Customers per month" value={100} number />
-            <Field name="locations" label="Locations / phone numbers" value={1} number />
-            <Field name="messages_per_customer" label="Messages per customer" value={2} number hint="Initial request plus included follow-ups." />
-            <Field name="monthly_messages" label="Monthly messages (optional)" value="" number required={false} hint="Use this when a client gives you an exact volume, such as 1,000 SMS. It overrides messages per customer for costing." />
-            <Field name="sms_segments_per_message" label="Average SMS segments" value={1} number hint="Long text or emojis can create multiple segments." />
-            <Field name="mms_percent" label="Messages with an image (%)" value={0} number />
-            <label className="label">Support level<select className="field" name="support_level" defaultValue="standard"><option value="standard">Standard</option><option value="priority">Priority (+$25)</option><option value="dedicated">Dedicated (+$75)</option></select></label>
-            <button disabled={busy} className="button-primary sm:col-span-2">{busy ? "Calculating…" : "Calculate package"}</button>
-          </form>
-          {quote ? <QuoteResult quote={quote} create={createFromQuote} /> : <div className="grid min-h-64 place-items-center rounded-2xl bg-paper p-8 text-center text-sm text-ink/45">Enter the expected monthly usage to see the recommended selling price and projected margin.</div>}
+          <div className="grid content-start gap-4 sm:grid-cols-2">
+            <label className="label sm:col-span-2">Assign to customer<select className="field" value={selectedBusinessId} onChange={(event) => setSelectedBusinessId(event.target.value)}><option value="">Select a customer</option>{businesses.map((business) => <option value={business.id} key={business.id}>{business.name} · {business.plan_code}</option>)}</select></label>
+            <QuoteField label="Customers per month" value={quoteRequest.monthly_customers} change={(value) => updateQuote("monthly_customers", value)} />
+            <QuoteField label="Locations / phone numbers" value={quoteRequest.locations} change={(value) => updateQuote("locations", value)} />
+            <QuoteField label="Messages per customer" value={quoteRequest.messages_per_customer} change={(value) => updateQuote("messages_per_customer", value)} hint="Initial request plus included follow-ups." />
+            <QuoteField label="Exact monthly messages (optional)" value={quoteRequest.monthly_messages ?? ""} change={(value) => updateQuote("monthly_messages", value || null)} required={false} hint="Overrides messages per customer when a client provides a fixed volume." />
+            <QuoteField label="Average SMS segments" value={quoteRequest.sms_segments_per_message} change={(value) => updateQuote("sms_segments_per_message", value)} hint="Long text or emojis can create multiple segments." />
+            <QuoteField label="Messages with an image (%)" value={quoteRequest.mms_percent} change={(value) => updateQuote("mms_percent", value)} min={0} />
+            <label className="label sm:col-span-2">Support level<select className="field" value={quoteRequest.support_level} onChange={(event) => updateQuote("support_level", event.target.value)}><option value="standard">Standard</option><option value="priority">Priority (+$25)</option><option value="dedicated">Dedicated (+$75)</option></select></label>
+            <p className="sm:col-span-2 text-xs text-ink/45">{quoteBusy ? "Updating price…" : "Price and margin update automatically as requirements change."}</p>
+          </div>
+          {quote ? <QuoteResult quote={quote} create={createFromQuote} assign={assignCustomPlan} assignBusy={assignBusy} canAssign={Boolean(selectedBusinessId)} businessName={businesses.find((item) => item.id === selectedBusinessId)?.name ?? null} /> : <div className="grid min-h-64 place-items-center rounded-2xl bg-paper p-8 text-center text-sm text-ink/45">Enter the expected monthly usage to see the recommended selling price and projected margin.</div>}
         </div>
       </section>
 
@@ -247,8 +294,11 @@ function PlanDialog({ plan, busy, close, save }: { plan: Partial<Plan>; busy: bo
 function Field({ name, label, value, number, disabled, hint, required = true }: { name: string; label: string; value: unknown; number?: boolean; disabled?: boolean; hint?: string; required?: boolean }) {
   return <label className="label">{label}<input className="field" name={name} required={required} disabled={disabled} type={number ? "number" : "text"} min={number ? 0 : undefined} defaultValue={String(value ?? "")} />{disabled && <input type="hidden" name={name} value={String(value ?? "")} />}{hint && <span className="mt-1 block text-xs font-normal normal-case text-ink/45">{hint}</span>}</label>;
 }
+function QuoteField({ label, value, change, hint, required = true, min = 1 }: { label: string; value: number | string; change: (value: number) => void; hint?: string; required?: boolean; min?: number }) {
+  return <label className="label">{label}<input className="field" type="number" min={min} required={required} value={value} onChange={(event) => change(event.target.value === "" ? 0 : Number(event.target.value))} />{hint && <span className="mt-1 block text-xs font-normal normal-case text-ink/45">{hint}</span>}</label>;
+}
 function Limit({ label, value }: { label: string; value: number | string }) { return <div className="rounded-lg bg-paper p-3 text-xs"><span className="text-ink/45">{label}</span><strong className="float-right">{value}</strong></div>; }
-function QuoteResult({ quote, create }: { quote: Quote; create: () => void }) {
+function QuoteResult({ quote, create, assign, assignBusy, canAssign, businessName }: { quote: Quote; create: () => void; assign: () => void; assignBusy: boolean; canAssign: boolean; businessName: string | null }) {
   const rows = [
     ["Twilio SMS", quote.breakdown.twilio_sms_minor], ["Twilio MMS", quote.breakdown.twilio_mms_minor],
     ["Phone numbers", quote.breakdown.twilio_numbers_minor], ["A2P campaign", quote.breakdown.a2p_campaign_minor],
@@ -259,7 +309,8 @@ function QuoteResult({ quote, create }: { quote: Quote; create: () => void }) {
     <div className="mt-5 grid grid-cols-2 gap-2 text-xs"><LimitDark label="Customers" value={quote.usage.monthly_customers.toLocaleString()} /><LimitDark label="Messages" value={quote.usage.messages.toLocaleString()} /><LimitDark label="SMS segments" value={quote.usage.sms_segments.toLocaleString()} /><LimitDark label="MMS" value={quote.usage.mms_messages.toLocaleString()} /></div>
     <div className="mt-5 space-y-2 border-t border-white/15 pt-4 text-xs">{rows.map(([label, value])=><div className="flex justify-between" key={label}><span className="text-white/60">{label}</span><strong>{money(value, quote.currency)}</strong></div>)}<div className="flex justify-between border-t border-white/15 pt-2"><span>Estimated monthly cost</span><strong>{money(quote.estimated_monthly_cost_minor, quote.currency)}</strong></div><div className="flex justify-between text-mint"><span>Estimated gross profit</span><strong>{money(quote.gross_profit_minor, quote.currency)}</strong></div></div>
     <p className="mt-4 text-xs leading-5 text-white/55">One-time A2P registration estimate: {money(quote.one_time_a2p_registration_minor, quote.currency)}. Final cost varies by carrier, encoding, taxes, and registration type.</p>
-    <button type="button" className="mt-5 w-full rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-ink" onClick={create}>Use this quote to create a private plan</button>
+    <button type="button" disabled={!canAssign || assignBusy} className="mt-5 w-full rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-ink disabled:opacity-40" onClick={assign}>{assignBusy ? "Assigning package…" : businessName ? `Create and assign to ${businessName}` : "Select a customer to assign"}</button>
+    <button type="button" className="mt-3 w-full rounded-xl border border-white/25 px-4 py-3 text-sm font-semibold" onClick={create}>Copy values into manual plan builder</button>
   </div>;
 }
 function LimitDark({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-white/10 p-3"><span className="text-white/50">{label}</span><strong className="float-right">{value}</strong></div>; }

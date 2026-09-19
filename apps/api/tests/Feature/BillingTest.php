@@ -133,6 +133,28 @@ class BillingTest extends TestCase
             && data_get($request->data(), 'subscription_data.trial_period_days') === null);
     }
 
+    public function test_legacy_trial_history_also_prevents_a_second_trial(): void
+    {
+        [$owner, $business] = $this->owner('Legacy trial');
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
+        $plan->update(['stripe_monthly_price_id' => 'price_momentum_month']);
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        BusinessSubscription::create([
+            'business_id' => $business->id,
+            'stripe_customer_id' => 'cus_legacy',
+            'status' => 'cancelled',
+            'trial_started_at' => now()->subMonth(),
+            'trial_ends_at' => now()->subWeeks(3),
+        ]);
+        Http::fake(['api.stripe.com/v1/checkout/sessions' => Http::response(['client_secret' => 'cs_legacy'])]);
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/checkout', ['plan_id' => $plan->id, 'interval' => 'month'], ['X-Business-ID' => $business->id])
+            ->assertOk();
+
+        Http::assertSent(fn (StripeRequest $request): bool => str_ends_with($request->url(), '/v1/checkout/sessions')
+            && data_get($request->data(), 'subscription_data.trial_period_days') === null);
+    }
+
     public function test_owner_can_quote_and_create_a_private_custom_plan_for_only_their_business(): void
     {
         [$owner, $business] = $this->owner('Custom package');
@@ -182,6 +204,53 @@ class BillingTest extends TestCase
             'monthly_price_minor' => 6000,
             'stripe_monthly_price_id' => 'price_custom_month',
         ]);
+    }
+
+    public function test_super_admin_can_calculate_and_assign_a_private_custom_plan_without_a_trial(): void
+    {
+        [, $business] = $this->owner('Admin custom package');
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        $payload = [
+            'business_id' => $business->id,
+            'monthly_customers' => 250,
+            'locations' => 2,
+            'messages_per_customer' => 2,
+            'monthly_messages' => null,
+            'sms_segments_per_message' => 1,
+            'mms_percent' => 0,
+            'support_level' => 'priority',
+        ];
+        $price = 0;
+        Http::fake(function (StripeRequest $request) use (&$price) {
+            if (str_ends_with($request->url(), '/v1/products')) {
+                return Http::response(['id' => 'prod_admin_custom']);
+            }
+            if (str_ends_with($request->url(), '/v1/prices')) {
+                $price++;
+
+                return Http::response(['id' => $price === 1 ? 'price_admin_custom_month' : 'price_admin_custom_year']);
+            }
+            if (str_ends_with($request->url(), '/v1/billing_portal/configurations')) {
+                return Http::response(['id' => 'bpc_admin_custom']);
+            }
+
+            return Http::response(['error' => ['message' => 'Unexpected request']], 400);
+        });
+
+        $this->actingAs($this->admin())->postJson('/api/v1/admin/plans/custom-assign', $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.business.id', $business->id)
+            ->assertJsonPath('data.plan.is_public', false)
+            ->assertJsonPath('data.plan.trial_days', 0);
+
+        $this->assertDatabaseHas('businesses', ['id' => $business->id, 'plan_code' => 'custom-'.$business->id]);
+        $this->assertDatabaseHas('subscription_plans', [
+            'business_id' => $business->id,
+            'code' => 'custom-'.$business->id,
+            'trial_days' => 0,
+            'stripe_monthly_price_id' => 'price_admin_custom_month',
+        ]);
+        $this->assertDatabaseHas('business_subscriptions', ['business_id' => $business->id]);
     }
 
     public function test_public_plans_are_available_for_signup_without_exposing_stripe_ids(): void

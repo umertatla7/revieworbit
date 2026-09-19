@@ -87,6 +87,7 @@ Route::prefix('api/v1')->group(function (): void {
 
         Route::post('/admin/plans', [PlatformPlanController::class, 'store'])->middleware('platform.role:super_admin');
         Route::post('/admin/plans/quote', [PlatformPlanController::class, 'quote'])->middleware('platform.role:super_admin');
+        Route::post('/admin/plans/custom-assign', [PlatformPlanController::class, 'assignCustom'])->middleware(['platform.role:super_admin', 'throttle:10,1']);
         Route::patch('/admin/plans/{plan}', [PlatformPlanController::class, 'update'])->middleware('platform.role:super_admin');
         Route::post('/admin/plans/{plan}/stripe-sync', [PlatformPlanController::class, 'syncStripe'])->middleware('platform.role:super_admin');
         Route::post('/admin/businesses/{business}/owners/{user}/password', [PlatformBusinessController::class, 'resetOwnerPassword'])

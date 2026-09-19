@@ -6,6 +6,7 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Billing\Models\BillingInvoice;
 use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Billing\Models\PlatformStripeSetting;
+use App\Domain\Billing\Services\CustomPlanManager;
 use App\Domain\Billing\Services\CustomPlanQuoteCalculator;
 use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
@@ -74,6 +75,7 @@ class BillingController extends Controller
             'has_stripe_customer' => (bool) $subscriptionModel?->stripe_customer_id,
             'can_manage_billing' => $isOwner || $isSupport,
             'managed_by_support' => $isSupport,
+            'trial_eligible' => ! $subscriptionModel?->trial_used_at && ! $subscriptionModel?->trial_started_at && ! $subscriptionModel?->stripe_subscription_id,
             'current_plan_code' => $business->plan_code,
             'subscription' => $subscription,
             'plans' => $plans,
@@ -160,51 +162,15 @@ class BillingController extends Controller
         return response()->json(['data' => $this->customerQuotePayload($quote)]);
     }
 
-    public function customPlan(Request $request, CustomPlanQuoteCalculator $calculator, StripeGateway $stripe, Auditor $auditor): JsonResponse
+    public function customPlan(Request $request, CustomPlanQuoteCalculator $calculator, CustomPlanManager $manager, Auditor $auditor): JsonResponse
     {
         $this->ensureBillingManager($request);
         $business = $request->attributes->get('business');
         $quote = $calculator->calculate($this->customQuoteData($request));
-        $allowances = $quote['recommended_allowances'];
-        $plan = SubscriptionPlan::updateOrCreate(
-            ['business_id' => $business->id],
-            [
-                'code' => 'custom-'.$business->id,
-                'name' => 'Custom plan',
-                'description' => null,
-                'monthly_price_minor' => $quote['monthly_price_minor'],
-                'annual_price_minor' => $quote['annual_price_minor'],
-                'currency' => $quote['currency'],
-                'trial_days' => 7,
-                'trial_message_limit' => 10,
-                'badge' => 'Configured for you',
-                'cta_label' => 'Activate custom plan',
-                'is_featured' => false,
-                'is_self_serve' => false,
-                'is_public' => false,
-                'sort_order' => 900,
-                'features' => [],
-                'location_limit' => $quote['usage']['locations'],
-                'template_limit' => $allowances['template_limit'],
-                'automation_limit' => $allowances['automation_limit'],
-                'automation_step_limit' => $allowances['automation_step_limit'],
-                'media_template_limit' => $allowances['media_template_limit'],
-                'review_destination_limit' => $allowances['review_destination_limit'],
-                'monthly_customer_limit' => $quote['usage']['monthly_customers'],
-                'included_message_credits' => 0,
-                'overage_price_minor' => 0,
-                'allow_overage' => false,
-                'sms_credit_units' => 1,
-                'mms_credit_units' => 1,
-                'whatsapp_credit_units' => 1,
-                'estimated_sms_provider_cost_minor' => 0,
-                'estimated_mms_provider_cost_minor' => 0,
-                'estimated_whatsapp_provider_cost_minor' => 0,
-                'review_providers' => ['google'],
-                'status' => 'active',
-            ],
-        );
-        $plan = $stripe->syncPlan($plan);
+        $trialDays = BusinessSubscription::where('business_id', $business->id)
+            ->where(fn ($query) => $query->whereNotNull('trial_used_at')->orWhereNotNull('trial_started_at')->orWhereNotNull('stripe_subscription_id'))
+            ->exists() ? 0 : 7;
+        $plan = $manager->configure($business, $quote, $trialDays);
         $auditor->record($request, 'billing.custom_plan.configured', $business, [
             'plan_id' => $plan->id,
             'monthly_customers' => $quote['usage']['monthly_customers'],

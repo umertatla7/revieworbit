@@ -65,7 +65,7 @@ class StripeGateway
             }
             $web = rtrim((string) config('services.frontend.url'), '/');
             $subscriptionData = ['metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id]];
-            if (! $subscription->trial_used_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
+            if (! $subscription->trial_used_at && ! $subscription->trial_started_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
                 $subscriptionData['trial_period_days'] = $plan->trial_days;
             }
             $session = $this->request($setting)->post('/v1/checkout/sessions', [
