@@ -6,6 +6,7 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Billing\Models\BillingInvoice;
 use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Billing\Models\PlatformStripeSetting;
+use App\Domain\Billing\Services\CustomPlanQuoteCalculator;
 use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Http\Controllers\Controller;
@@ -17,10 +18,10 @@ class BillingController extends Controller
 {
     public function plans(): JsonResponse
     {
-        return response()->json(['data' => SubscriptionPlan::where('status', 'active')
+        return response()->json(['data' => SubscriptionPlan::where('status', 'active')->where('is_public', true)
             ->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
             ->makeHidden([
-                'stripe_product_id', 'stripe_monthly_price_id', 'stripe_annual_price_id',
+                'business_id', 'stripe_product_id', 'stripe_monthly_price_id', 'stripe_annual_price_id',
                 'overage_price_minor', 'included_message_credits', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
                 'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
                 'estimated_whatsapp_provider_cost_minor', 'allow_overage',
@@ -32,8 +33,17 @@ class BillingController extends Controller
         $business = $request->attributes->get('business');
         $subscriptionModel = BusinessSubscription::with('plan')->where('business_id', $business->id)->first();
         $subscription = $subscriptionModel ? $this->subscriptionPayload($subscriptionModel) : null;
-        $plans = SubscriptionPlan::where('status', 'active')->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
+        $plans = SubscriptionPlan::where('status', 'active')
+            ->where(function ($query) use ($business, $subscriptionModel): void {
+                $query->where('is_public', true);
+                $query->orWhere('business_id', $business->id);
+                if ($subscriptionModel?->subscription_plan_id) {
+                    $query->orWhere('id', $subscriptionModel->subscription_plan_id);
+                }
+            })
+            ->orderBy('sort_order')->orderBy('monthly_price_minor')->get()
             ->makeHidden([
+                'business_id',
                 'overage_price_minor', 'included_message_credits', 'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units',
                 'estimated_sms_provider_cost_minor', 'estimated_mms_provider_cost_minor',
                 'estimated_whatsapp_provider_cost_minor', 'allow_overage',
@@ -110,7 +120,8 @@ class BillingController extends Controller
         $data = $request->validate(['plan_id' => ['required', Rule::exists('subscription_plans', 'id')->where('status', 'active')], 'interval' => ['required', Rule::in(['month', 'year'])]]);
         $business = $request->attributes->get('business');
         $plan = SubscriptionPlan::findOrFail($data['plan_id']);
-        abort_unless($plan->is_self_serve && $plan->monthly_price_minor > 0, 422, 'This plan requires a conversation with our team.');
+        $isAssignedPrivatePlan = ! $plan->is_public && $plan->business_id === $business->id;
+        abort_unless(($plan->is_self_serve || $isAssignedPrivatePlan) && $plan->monthly_price_minor > 0, 422, 'This plan requires a conversation with our team.');
         $existing = BusinessSubscription::where('business_id', $business->id)->whereNotNull('stripe_subscription_id')->whereIn('status', ['trialing', 'active', 'past_due'])->first();
         if ($existing) {
             $changed = $stripe->changeSubscription($business, $plan, $data['interval']);
@@ -141,6 +152,74 @@ class BillingController extends Controller
         return response()->json(['data' => $session]);
     }
 
+    public function customQuote(Request $request, CustomPlanQuoteCalculator $calculator): JsonResponse
+    {
+        $this->ensureBillingManager($request);
+        $quote = $calculator->calculate($this->customQuoteData($request));
+
+        return response()->json(['data' => $this->customerQuotePayload($quote)]);
+    }
+
+    public function customPlan(Request $request, CustomPlanQuoteCalculator $calculator, StripeGateway $stripe, Auditor $auditor): JsonResponse
+    {
+        $this->ensureBillingManager($request);
+        $business = $request->attributes->get('business');
+        $quote = $calculator->calculate($this->customQuoteData($request));
+        $allowances = $quote['recommended_allowances'];
+        $plan = SubscriptionPlan::updateOrCreate(
+            ['business_id' => $business->id],
+            [
+                'code' => 'custom-'.$business->id,
+                'name' => 'Custom plan',
+                'description' => null,
+                'monthly_price_minor' => $quote['monthly_price_minor'],
+                'annual_price_minor' => $quote['annual_price_minor'],
+                'currency' => $quote['currency'],
+                'trial_days' => 7,
+                'trial_message_limit' => 10,
+                'badge' => 'Configured for you',
+                'cta_label' => 'Activate custom plan',
+                'is_featured' => false,
+                'is_self_serve' => false,
+                'is_public' => false,
+                'sort_order' => 900,
+                'features' => [],
+                'location_limit' => $quote['usage']['locations'],
+                'template_limit' => $allowances['template_limit'],
+                'automation_limit' => $allowances['automation_limit'],
+                'automation_step_limit' => $allowances['automation_step_limit'],
+                'media_template_limit' => $allowances['media_template_limit'],
+                'review_destination_limit' => $allowances['review_destination_limit'],
+                'monthly_customer_limit' => $quote['usage']['monthly_customers'],
+                'included_message_credits' => 0,
+                'overage_price_minor' => 0,
+                'allow_overage' => false,
+                'sms_credit_units' => 1,
+                'mms_credit_units' => 1,
+                'whatsapp_credit_units' => 1,
+                'estimated_sms_provider_cost_minor' => 0,
+                'estimated_mms_provider_cost_minor' => 0,
+                'estimated_whatsapp_provider_cost_minor' => 0,
+                'review_providers' => ['google'],
+                'status' => 'active',
+            ],
+        );
+        $plan = $stripe->syncPlan($plan);
+        $auditor->record($request, 'billing.custom_plan.configured', $business, [
+            'plan_id' => $plan->id,
+            'monthly_customers' => $quote['usage']['monthly_customers'],
+            'messages' => $quote['usage']['messages'],
+            'locations' => $quote['usage']['locations'],
+            'monthly_price_minor' => $quote['monthly_price_minor'],
+        ]);
+
+        return response()->json(['data' => $plan->makeHidden([
+            'business_id', 'stripe_product_id', 'overage_price_minor', 'included_message_credits',
+            'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units', 'estimated_sms_provider_cost_minor',
+            'estimated_mms_provider_cost_minor', 'estimated_whatsapp_provider_cost_minor', 'allow_overage',
+        ])]);
+    }
+
     public function portal(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
         $this->ensureBillingManager($request);
@@ -160,5 +239,31 @@ class BillingController extends Controller
         }
 
         abort_unless(($request->attributes->get('membership')?->role?->value ?? $request->attributes->get('membership')?->role) === 'owner', 403, 'Only the business owner can manage billing.');
+    }
+
+    /** @return array{monthly_customers:int,locations:int,messages_per_customer:int,monthly_messages:?int,sms_segments_per_message:int,mms_percent:int,support_level:string} */
+    private function customQuoteData(Request $request): array
+    {
+        return $request->validate([
+            'monthly_customers' => ['required', 'integer', 'min:1', 'max:100000'],
+            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
+            'messages_per_customer' => ['required', 'integer', 'min:1', 'max:10'],
+            'monthly_messages' => ['nullable', 'integer', 'min:1', 'max:1000000'],
+            'sms_segments_per_message' => ['required', 'integer', 'min:1', 'max:10'],
+            'mms_percent' => ['required', 'integer', 'min:0', 'max:100'],
+            'support_level' => ['required', Rule::in(['standard', 'priority', 'dedicated'])],
+        ]);
+    }
+
+    /** @param array<string, mixed> $quote */
+    private function customerQuotePayload(array $quote): array
+    {
+        return [
+            'currency' => $quote['currency'],
+            'monthly_price_minor' => $quote['monthly_price_minor'],
+            'annual_price_minor' => $quote['annual_price_minor'],
+            'usage' => $quote['usage'],
+            'recommended_allowances' => $quote['recommended_allowances'],
+        ];
     }
 }

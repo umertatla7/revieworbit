@@ -65,7 +65,7 @@ class StripeGateway
             }
             $web = rtrim((string) config('services.frontend.url'), '/');
             $subscriptionData = ['metadata' => ['business_id' => $business->id, 'plan_id' => $plan->id]];
-            if (! $subscription->trial_started_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
+            if (! $subscription->trial_used_at && ! $subscription->stripe_subscription_id && $plan->trial_days > 0) {
                 $subscriptionData['trial_period_days'] = $plan->trial_days;
             }
             $session = $this->request($setting)->post('/v1/checkout/sessions', [
@@ -278,7 +278,10 @@ class StripeGateway
 
     private function syncPortalConfiguration(PlatformStripeSetting $setting): void
     {
-        $products = SubscriptionPlan::where('status', 'active')->whereNotNull('stripe_product_id')->get()
+        $products = SubscriptionPlan::where('status', 'active')
+            ->where('is_public', true)
+            ->where('is_self_serve', true)
+            ->whereNotNull('stripe_product_id')->get()
             ->map(fn (SubscriptionPlan $plan): array => ['product' => $plan->stripe_product_id, 'prices' => array_values(array_filter([$plan->stripe_monthly_price_id, $plan->stripe_annual_price_id]))])
             ->filter(fn (array $product): bool => $product['prices'] !== [])->values()->all();
         $payload = [

@@ -273,6 +273,7 @@ class PlatformAndOnboardingTest extends TestCase
             'quiet_hours_start' => '20:00',
             'quiet_hours_end' => '09:00',
             'account_notes' => 'Customer requested concierge Square setup.',
+            'plan_code' => 'launch',
             'send_owner_setup_email' => true,
         ];
     }

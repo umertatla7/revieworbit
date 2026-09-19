@@ -17,6 +17,7 @@ class ManualReviewMessageSender
         private readonly MessagingProvider $provider,
         private readonly TemplateRenderer $renderer,
         private readonly MessageCostEstimator $costEstimator,
+        private readonly TrialMessageLimiter $trialLimiter,
     ) {}
 
     public function send(ReviewLink $source, string $customBody, string $userId): MessageDelivery
@@ -25,6 +26,7 @@ class ManualReviewMessageSender
             $source->loadMissing(['customer.consents', 'customer.suppressions', 'visit.business.messagingConfiguration', 'location', 'deliveries.template']);
             $customer = $source->customer ?? throw new RuntimeException('The customer is no longer available.');
             $this->costEstimator->assertCustomerAvailable($source->visit->business, $customer->id);
+            $this->trialLimiter->assertMaySend($source->visit->business);
             $original = $source->deliveries()->whereNotNull('message_template_id')->latest()->firstOrFail();
             $channel = $original->channel;
             $configuration = $source->visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');

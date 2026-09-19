@@ -21,6 +21,7 @@ class TemplateTestMessenger
         private readonly TemplateRenderer $renderer,
         private readonly PersonalizedMediaRenderer $mediaRenderer,
         private readonly TwilioCredentials $credentials,
+        private readonly TrialMessageLimiter $trialLimiter,
     ) {}
 
     public function send(MessageTemplate $template, Customer $customer, string $requestedByUserId, bool $trialRecipientVerified): TestMessageDelivery
@@ -50,6 +51,8 @@ class TemplateTestMessenger
         if (! $customer->phone_e164) {
             throw ValidationException::withMessages(['customer_id' => ['The selected customer has no mobile number.']]);
         }
+
+        $this->trialLimiter->assertMaySend($template->business, isTest: true);
 
         $consent = $customer->consents()->where('channel', $channel)->latest('recorded_at')->first();
         if (! $consent || $consent->status !== 'granted' || ($consent->expires_at && $consent->expires_at->isPast())) {

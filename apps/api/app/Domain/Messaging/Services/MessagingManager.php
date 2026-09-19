@@ -22,6 +22,7 @@ class MessagingManager
         private readonly TemplateRenderer $renderer,
         private readonly PersonalizedMediaRenderer $mediaRenderer,
         private readonly MessageCostEstimator $costEstimator,
+        private readonly TrialMessageLimiter $trialLimiter,
     ) {}
 
     public function send(AutomationDispatch $dispatch): MessageDelivery
@@ -38,6 +39,7 @@ class MessagingManager
             $visit = $dispatch->visit;
             $customer = $visit->customer ?? throw new RuntimeException('The customer is missing.');
             $this->costEstimator->assertCustomerAvailable($visit->business, $customer->id);
+            $this->trialLimiter->assertMaySend($visit->business);
             $configuration = $visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
             abort_unless($configuration->status === 'active', 422, 'Messaging is not active for this business.');
             $template = $this->template($dispatch);

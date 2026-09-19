@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { api, supportBusinessName } from "@/lib/api";
 import { StripeEmbeddedCheckout, type EmbeddedStripeSession } from "@/components/stripe-embedded-checkout";
 
-type Plan = { id:string; code:string; name:string; description:string|null; monthly_price_minor:number; annual_price_minor:number; currency:string; trial_days:number; badge:string|null; cta_label:string; is_featured:boolean; is_self_serve:boolean; features:string[]|null; location_limit:number; template_limit:number; automation_limit:number; automation_step_limit:number; media_template_limit:number; review_destination_limit:number; monthly_customer_limit:number|null; stripe_monthly_price_id:string|null; stripe_annual_price_id:string|null };
+type Plan = { id:string; code:string; name:string; description:string|null; monthly_price_minor:number; annual_price_minor:number; currency:string; trial_days:number; trial_message_limit:number; badge:string|null; cta_label:string; is_featured:boolean; is_self_serve:boolean; is_public:boolean; features:string[]|null; location_limit:number; template_limit:number; automation_limit:number; automation_step_limit:number; media_template_limit:number; review_destination_limit:number; monthly_customer_limit:number|null; stripe_monthly_price_id:string|null; stripe_annual_price_id:string|null };
 type Subscription = { status:string; billing_interval:string|null; trial_ends_at:string|null; current_period_ends_at:string|null; cancel_at_period_end:boolean; plan:Plan|null };
 type Invoice = { id:string; number:string|null; status:string|null; amount_paid_minor:number; amount_due_minor:number; currency:string; hosted_invoice_url:string|null; invoice_pdf_url:string|null; created_at:string|null };
 type PaymentMethod = { id:string; brand:string|null; last4:string|null; exp_month:number|null; exp_year:number|null; is_default:boolean };
 type Billing = { stripe_ready:boolean; has_stripe_customer:boolean; can_manage_billing:boolean; managed_by_support:boolean; current_plan_code:string; subscription:Subscription|null; plans:Plan[]; invoices:Invoice[]; payment_methods:PaymentMethod[]; stripe_error:string|null };
+type CustomRequest = { monthly_customers:number; locations:number; messages_per_customer:number; monthly_messages:number|null; sms_segments_per_message:number; mms_percent:number; support_level:string };
+type CustomQuote = { currency:string; monthly_price_minor:number; annual_price_minor:number; usage:{monthly_customers:number;messages:number;sms_messages:number;sms_segments:number;mms_messages:number;locations:number};recommended_allowances:{template_limit:number;automation_limit:number;automation_step_limit:number;media_template_limit:number;review_destination_limit:number} };
 type Tab = "overview"|"plans"|"payment"|"invoices";
 
 const tabs: {id:Tab; label:string}[] = [
@@ -23,6 +25,9 @@ export default function BillingPage() {
   const [busy,setBusy]=useState<string|null>(null);
   const [message,setMessage]=useState("");
   const [embedded,setEmbedded]=useState<{title:string;session:EmbeddedStripeSession}|null>(null);
+  const [customizing,setCustomizing]=useState(false);
+  const [customQuote,setCustomQuote]=useState<CustomQuote|null>(null);
+  const [customRequest,setCustomRequest]=useState<CustomRequest|null>(null);
   const support=typeof window!=="undefined"?supportBusinessName():null;
 
   useEffect(()=>{
@@ -75,6 +80,29 @@ export default function BillingPage() {
     finally { setBusy(null); }
   }
 
+  async function calculateCustomPlan(formData:FormData) {
+    const request:CustomRequest={
+      monthly_customers:Number(formData.get("monthly_customers")), locations:Number(formData.get("locations")),
+      messages_per_customer:Number(formData.get("messages_per_customer")),
+      monthly_messages:formData.get("monthly_messages")?Number(formData.get("monthly_messages")):null,
+      sms_segments_per_message:Number(formData.get("sms_segments_per_message")), mms_percent:Number(formData.get("mms_percent")),
+      support_level:String(formData.get("support_level")??"standard"),
+    };
+    setBusy("custom-quote"); setMessage("");
+    try { const result=await api<{data:CustomQuote}>("/api/v1/billing/custom-quote",{method:"POST",body:JSON.stringify(request)},true); setCustomRequest(request);setCustomQuote(result.data); }
+    catch(error){setMessage(error instanceof Error?error.message:"Unable to calculate this custom plan.");}
+    finally{setBusy(null);}
+  }
+
+  async function activateCustomPlan() {
+    if(!customRequest) return;
+    setBusy("custom-plan");setMessage("");
+    try {
+      const result=await api<{data:Plan}>("/api/v1/billing/custom-plan",{method:"POST",body:JSON.stringify(customRequest)},true);
+      setCustomizing(false); await choosePlan(result.data);
+    } catch(error){setMessage(error instanceof Error?error.message:"Unable to prepare the custom plan.");setBusy(null);}
+  }
+
   if(!data) return <div className="mx-auto max-w-7xl"><p className="eyebrow">Plan & billing</p><h1 className="page-title">Loading your billing account…</h1>{message&&<Notice text={message}/>}</div>;
 
   const current=data.subscription;
@@ -108,7 +136,8 @@ export default function BillingPage() {
 
     {tab==="plans"&&<div>
       <div className="mt-7 flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-2xl font-semibold">Choose the right plan</h2><p className="mt-1 text-sm text-ink/50">New billing opens securely here. Existing plan changes use your saved card and Stripe calculates prorations.</p></div><div className="inline-flex rounded-xl bg-white p-1 shadow-sm"><button className={`rounded-lg px-5 py-2 text-sm font-semibold ${interval==="month"?"bg-forest text-white":""}`} onClick={()=>setInterval("month")}>Monthly</button><button className={`rounded-lg px-5 py-2 text-sm font-semibold ${interval==="year"?"bg-forest text-white":""}`} onClick={()=>setInterval("year")}>Annual</button></div></div>
-      <div className="mt-6 grid gap-5 lg:grid-cols-2 xl:grid-cols-4">{data.plans.map(plan=><PlanCard key={plan.id} plan={plan} interval={interval} active={hasSubscription&&current?.plan?.code===plan.code} assigned={data.current_plan_code===plan.code} currentPlan={current?.plan??data.plans.find(item=>item.code===data.current_plan_code)??null} stripeReady={data.stripe_ready} canManage={canManage} busy={busy} choose={()=>choosePlan(plan)}/>)}</div>
+      <div className="mt-6 grid gap-5 lg:grid-cols-2 xl:grid-cols-4">{data.plans.map(plan=><PlanCard key={plan.id} plan={plan} interval={interval} active={hasSubscription&&current?.plan?.code===plan.code} assigned={data.current_plan_code===plan.code} currentPlan={current?.plan??data.plans.find(item=>item.code===data.current_plan_code)??null} stripeReady={data.stripe_ready} canManage={canManage} busy={busy} choose={()=>choosePlan(plan)} customize={()=>{setCustomizing(true);setCustomQuote(null);}}/>)}</div>
+      {customizing&&<CustomPlanBuilder quote={customQuote} busy={busy} canManage={canManage} calculate={calculateCustomPlan} activate={activateCustomPlan} close={()=>{setCustomizing(false);setCustomQuote(null);}}/>}
     </div>}
 
     {tab==="payment"&&<section className="mt-6 overflow-hidden rounded-2xl border border-ink/8 bg-white">
@@ -121,12 +150,44 @@ export default function BillingPage() {
   </div>;
 }
 
-function PlanCard({plan,interval,active,assigned,currentPlan,stripeReady,canManage,busy,choose}:{plan:Plan;interval:"month"|"year";active:boolean;assigned:boolean;currentPlan:Plan|null;stripeReady:boolean;canManage:boolean;busy:string|null;choose:()=>void}) {
+function PlanCard({plan,interval,active,assigned,currentPlan,stripeReady,canManage,busy,choose,customize}:{plan:Plan;interval:"month"|"year";active:boolean;assigned:boolean;currentPlan:Plan|null;stripeReady:boolean;canManage:boolean;busy:string|null;choose:()=>void;customize:()=>void}) {
   const amount=interval==="year"?plan.annual_price_minor:plan.monthly_price_minor;
   const published=Boolean(interval==="year"?plan.stripe_annual_price_id:plan.stripe_monthly_price_id);
   const direction=currentPlan&&plan.monthly_price_minor<currentPlan.monthly_price_minor?"Downgrade":currentPlan&&plan.monthly_price_minor>currentPlan.monthly_price_minor?"Upgrade":"Choose";
-  return <article className={`relative flex flex-col rounded-2xl bg-white p-6 shadow-sm ${assigned?"border-2 border-forest ring-4 ring-forest/10":plan.is_featured?"border border-lime ring-2 ring-lime/25":"border border-ink/8"}`}>{assigned&&<span className="absolute right-5 top-5 rounded-full bg-forest px-3 py-1 text-[10px] font-bold uppercase text-white">Current plan</span>}{!assigned&&plan.badge&&<span className="absolute right-5 top-5 rounded-full bg-lime px-3 py-1 text-[10px] font-bold uppercase">{plan.badge}</span>}<p className="eyebrow">{active?"Active subscription":assigned?"Assigned package":plan.code}</p><h2 className="mt-2 text-2xl font-semibold">{plan.name}</h2><p className="mt-2 min-h-12 text-sm leading-6 text-ink/50">{plan.description}</p><p className="mt-6 text-4xl font-semibold">{plan.is_self_serve?money(amount,plan.currency):"Custom"}{plan.is_self_serve&&<span className="text-sm font-normal text-ink/40"> / {interval}</span>}</p>{plan.trial_days>0&&plan.is_self_serve&&<p className="mt-2 text-xs font-semibold text-forest">{plan.trial_days}-day free trial · card required</p>}<ul className="mt-6 flex-1 space-y-3 text-sm"><Item text={`${plan.monthly_customer_limit?.toLocaleString()??"Custom"} customers / month`}/><Item text={`${plan.location_limit}${plan.is_self_serve?"":"+"} location${plan.location_limit===1?"":"s"}`}/><Item text="Follow-up reminders included"/><Item text={`${plan.review_destination_limit} review link${plan.review_destination_limit===1?"":"s"}`}/>{plan.features?.map(feature=><Item key={feature} text={feature}/>)}</ul>{plan.is_self_serve?<><button disabled={active||!published||Boolean(busy)||!canManage||!stripeReady} className={`mt-7 w-full rounded-xl px-4 py-3 text-sm font-semibold ${active?"bg-forest/10 text-forest":"bg-forest text-white disabled:opacity-40"}`} onClick={choose}>{busy===plan.id?"Updating plan…":active?"Current plan":assigned?"Activate billing":`${direction} to ${plan.name}`}</button>{!published&&<p className="mt-2 text-center text-xs text-ink/40">Temporarily unavailable while this price is published.</p>}</>:<a className="mt-7 w-full rounded-xl border border-forest px-4 py-3 text-center text-sm font-semibold text-forest" href="mailto:hello@revieworbit.tech?subject=ReviewOrbit%20Enterprise">{plan.cta_label||"Book a Call"}</a>}</article>;
+  const isPublicCustom=!plan.is_self_serve&&plan.is_public&&plan.monthly_price_minor===0;
+  const canPurchase=plan.is_self_serve||(!plan.is_public&&assigned&&plan.monthly_price_minor>0);
+  return <article className={`relative flex flex-col rounded-2xl bg-white p-6 shadow-sm ${assigned?"border-2 border-forest ring-4 ring-forest/10":plan.is_featured?"border border-lime ring-2 ring-lime/25":"border border-ink/8"}`}>
+    {assigned&&<span className="absolute right-5 top-5 rounded-full bg-forest px-3 py-1 text-[10px] font-bold uppercase text-white">Current plan</span>}
+    {!assigned&&plan.badge&&<span className="absolute right-5 top-5 rounded-full bg-lime px-3 py-1 text-[10px] font-bold uppercase">{plan.badge}</span>}
+    <p className="eyebrow">{active?"Active subscription":assigned?"Assigned package":plan.code}</p><h2 className="mt-2 text-2xl font-semibold">{plan.name}</h2>
+    {isPublicCustom?<><div className="flex-1"/><button type="button" disabled={!canManage} className="mt-7 w-full rounded-xl border border-forest px-4 py-3 text-center text-sm font-semibold text-forest disabled:opacity-40" onClick={customize}>Customize plan</button></>:<>
+      <p className="mt-2 min-h-12 text-sm leading-6 text-ink/50">{plan.description}</p><p className="mt-6 text-4xl font-semibold">{money(amount,plan.currency)}<span className="text-sm font-normal text-ink/40"> / {interval}</span></p>
+      {plan.trial_days>0&&<p className="mt-2 text-xs font-semibold text-forest">{plan.trial_days}-day free trial · {plan.trial_message_limit} test messages · card required</p>}
+      <ul className="mt-6 flex-1 space-y-3 text-sm"><Item text={`${plan.monthly_customer_limit?.toLocaleString()??"Custom"} customers / month`}/><Item text={`${plan.location_limit} location${plan.location_limit===1?"":"s"}`}/><Item text="Follow-up reminders included"/><Item text={`${plan.review_destination_limit} review link${plan.review_destination_limit===1?"":"s"}`}/>{plan.features?.map(feature=><Item key={feature} text={feature}/>)}</ul>
+      {canPurchase?<><button disabled={active||!published||Boolean(busy)||!canManage||!stripeReady} className={`mt-7 w-full rounded-xl px-4 py-3 text-sm font-semibold ${active?"bg-forest/10 text-forest":"bg-forest text-white disabled:opacity-40"}`} onClick={choose}>{busy===plan.id?"Updating plan…":active?"Current plan":assigned?"Activate billing":`${direction} to ${plan.name}`}</button>{!published&&<p className="mt-2 text-center text-xs text-ink/40">Temporarily unavailable while this price is published.</p>}</>:<a className="mt-7 w-full rounded-xl border border-forest px-4 py-3 text-center text-sm font-semibold text-forest" href="mailto:hello@revieworbit.tech?subject=ReviewOrbit%20Custom%20Plan">{plan.cta_label||"Book a Call"}</a>}
+    </>}
+  </article>;
 }
+function CustomPlanBuilder({quote,busy,canManage,calculate,activate,close}:{quote:CustomQuote|null;busy:string|null;canManage:boolean;calculate:(data:FormData)=>void;activate:()=>void;close:()=>void}){
+  return <section className="mt-6 overflow-hidden rounded-3xl border border-forest/20 bg-white shadow-sm">
+    <header className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/8 p-6"><div><p className="eyebrow">Build your package</p><h2 className="mt-1 text-2xl font-semibold">Choose what your business needs</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-ink/50">Your price updates from the capacity and service options below. There are no per-message overage charges; ReviewOrbit pauses new review journeys at your selected monthly customer limit.</p></div><button type="button" className="rounded-xl border border-ink/10 px-4 py-2 text-sm font-semibold" onClick={close}>Close</button></header>
+    <div className="grid gap-6 p-6 lg:grid-cols-[1.1fr_.9fr]">
+      <form action={calculate} className="grid content-start gap-4 sm:grid-cols-2">
+        <CustomField name="monthly_customers" label="Customers each month" value={500} hint="How many different customers may enter a review journey each month."/>
+        <CustomField name="locations" label="Business locations" value={2}/>
+        <CustomField name="messages_per_customer" label="Messages per customer" value={2} hint="For example: one request and one follow-up."/>
+        <CustomField name="monthly_messages" label="Exact monthly messages (optional)" value="" required={false} hint="Use this only when you already know the expected volume."/>
+        <CustomField name="sms_segments_per_message" label="Average message length" value={1} hint="Choose 1 for short SMS. Long text or emojis can use more segments."/>
+        <CustomField name="mms_percent" label="Messages containing images (%)" value={0}/>
+        <label className="label sm:col-span-2">Support level<select className="field" name="support_level" defaultValue="standard"><option value="standard">Standard support</option><option value="priority">Priority support</option><option value="dedicated">Dedicated account support</option></select></label>
+        <button disabled={Boolean(busy)} className="button-primary sm:col-span-2">{busy==="custom-quote"?"Calculating…":"Calculate my price"}</button>
+      </form>
+      {quote?<div className="rounded-2xl bg-forest p-6 text-white"><p className="text-xs font-bold uppercase tracking-[.18em] text-mint">Your custom package</p><p className="mt-3 text-4xl font-semibold">{money(quote.monthly_price_minor,quote.currency)}<span className="text-sm font-normal text-white/55"> / month</span></p><p className="mt-1 text-xs text-white/55">or {money(quote.annual_price_minor,quote.currency)} annually</p><div className="mt-6 grid grid-cols-2 gap-2 text-xs"><CustomResult label="Customers" value={quote.usage.monthly_customers.toLocaleString()}/><CustomResult label="Locations" value={quote.usage.locations.toLocaleString()}/><CustomResult label="Messages" value={quote.usage.messages.toLocaleString()}/><CustomResult label="Automations" value={quote.recommended_allowances.automation_limit.toLocaleString()}/><CustomResult label="Templates" value={quote.recommended_allowances.template_limit.toLocaleString()}/><CustomResult label="Review links" value={quote.recommended_allowances.review_destination_limit.toLocaleString()}/></div><p className="mt-5 text-xs leading-5 text-white/60">Changing an existing subscription does not start another free trial. Stripe calculates any prorated credit or charge before the change is finalized.</p><button type="button" disabled={!canManage||Boolean(busy)} className="mt-5 w-full rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-ink disabled:opacity-40" onClick={activate}>{busy==="custom-plan"?"Preparing secure checkout…":"Continue with this package"}</button></div>:<div className="grid min-h-72 place-items-center rounded-2xl bg-paper p-8 text-center text-sm leading-6 text-ink/45">Select your requirements and calculate a transparent monthly and annual price.</div>}
+    </div>
+  </section>;
+}
+function CustomField({name,label,value,hint,required=true}:{name:string;label:string;value:number|string;hint?:string;required?:boolean}){return <label className="label">{label}<input className="field" type="number" min="0" name={name} defaultValue={value} required={required}/>{hint&&<span className="mt-1 block text-xs font-normal normal-case leading-5 text-ink/45">{hint}</span>}</label>}
+function CustomResult({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-white/10 p-3"><span className="text-white/55">{label}</span><strong className="float-right">{value}</strong></div>}
 function Notice({text,tone="neutral"}:{text:string;tone?:"neutral"|"warning"}){return <p className={`mt-5 rounded-xl border px-4 py-3 text-sm ${tone==="warning"?"border-amber-300 bg-amber-50":"border-ink/8 bg-white"}`}>{text}</p>}
 function Summary({label,value}:{label:string;value:string}){return <div className="rounded-2xl border border-ink/8 bg-white p-5"><p className="text-xs text-ink/45">{label}</p><strong className="mt-2 block capitalize">{value}</strong></div>}
 function QuickCard({title,body,action,click}:{title:string;body:string;action:string;click:()=>void}){return <article className="rounded-2xl border border-ink/8 bg-white p-6"><h2 className="text-lg font-semibold">{title}</h2><p className="mt-2 min-h-12 text-sm leading-6 text-ink/50">{body}</p><button className="mt-5 text-sm font-semibold text-forest" onClick={click}>{action} →</button></article>}

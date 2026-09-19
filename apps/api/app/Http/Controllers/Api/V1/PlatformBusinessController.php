@@ -82,9 +82,15 @@ class PlatformBusinessController extends Controller
             'quiet_hours_start' => ['required', 'date_format:H:i'],
             'quiet_hours_end' => ['required', 'date_format:H:i'],
             'account_notes' => ['nullable', 'string', 'max:2000'],
+            'plan_code' => ['required', Rule::exists('subscription_plans', 'code')->where(fn ($query) => $query->whereIn('status', ['active', 'draft']))],
             'send_owner_setup_email' => ['required', 'boolean'],
         ]);
+        $selectedPlan = SubscriptionPlan::where('code', $data['plan_code'])->firstOrFail();
+        abort_if(! $selectedPlan->is_public && $selectedPlan->business_id, 422, 'This private plan is already assigned to another customer.');
         $result = $provisioner->provision($data);
+        if (! $selectedPlan->is_public && ! $selectedPlan->business_id) {
+            $selectedPlan->update(['business_id' => $result['business']->id]);
+        }
         $setupEmailStatus = $data['send_owner_setup_email'] ? 'existing_owner' : 'not_requested';
         if ($data['send_owner_setup_email'] && $result['owner_created']) {
             try {
@@ -120,6 +126,13 @@ class PlatformBusinessController extends Controller
         ]);
         if (isset($data['default_country'])) {
             $data['default_country'] = strtoupper($data['default_country']);
+        }
+        if (isset($data['plan_code'])) {
+            $selectedPlan = SubscriptionPlan::where('code', $data['plan_code'])->firstOrFail();
+            abort_if(! $selectedPlan->is_public && $selectedPlan->business_id && $selectedPlan->business_id !== $model->id, 422, 'This private plan belongs to another customer.');
+            if (! $selectedPlan->is_public && ! $selectedPlan->business_id) {
+                $selectedPlan->update(['business_id' => $model->id]);
+            }
         }
         $model->update($data);
         if (isset($data['plan_code'])) {

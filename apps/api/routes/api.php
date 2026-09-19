@@ -86,6 +86,7 @@ Route::prefix('api/v1')->group(function (): void {
         });
 
         Route::post('/admin/plans', [PlatformPlanController::class, 'store'])->middleware('platform.role:super_admin');
+        Route::post('/admin/plans/quote', [PlatformPlanController::class, 'quote'])->middleware('platform.role:super_admin');
         Route::patch('/admin/plans/{plan}', [PlatformPlanController::class, 'update'])->middleware('platform.role:super_admin');
         Route::post('/admin/plans/{plan}/stripe-sync', [PlatformPlanController::class, 'syncStripe'])->middleware('platform.role:super_admin');
         Route::post('/admin/businesses/{business}/owners/{user}/password', [PlatformBusinessController::class, 'resetOwnerPassword'])
@@ -121,6 +122,8 @@ Route::prefix('api/v1')->group(function (): void {
             Route::get('/message-deliveries', [MessagingConfigurationController::class, 'deliveries']);
             Route::middleware('business.role:owner,manager')->group(function (): void {
                 Route::patch('/business', [BusinessController::class, 'update']);
+                Route::post('/billing/custom-quote', [BillingController::class, 'customQuote'])->middleware('throttle:30,1');
+                Route::post('/billing/custom-plan', [BillingController::class, 'customPlan'])->middleware('throttle:5,1');
                 Route::patch('/profile', [ProfileController::class, 'update']);
                 Route::post('/profile/avatar', [ProfileController::class, 'avatar']);
                 Route::put('/profile/password', [ProfileController::class, 'password'])->middleware('throttle:5,1');

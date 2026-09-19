@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Billing\Services\CustomPlanQuoteCalculator;
 use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Tenancy\Models\Business;
@@ -43,11 +44,26 @@ class PlatformPlanController extends Controller
     public function syncStripe(Request $request, string $plan, StripeGateway $stripe, Auditor $auditor): JsonResponse
     {
         $model = SubscriptionPlan::findOrFail($plan);
-        abort_unless($model->is_self_serve && $model->monthly_price_minor > 0, 422, 'Sales-assisted plans do not require a Stripe price.');
+        abort_unless($model->monthly_price_minor > 0, 422, 'A paid plan is required before creating Stripe prices.');
         $model = $stripe->syncPlan($model);
         $auditor->record($request, 'subscription_plan.stripe_synced', $model, ['stripe_product_id' => $model->stripe_product_id]);
 
         return response()->json(['data' => $model]);
+    }
+
+    public function quote(Request $request, CustomPlanQuoteCalculator $calculator): JsonResponse
+    {
+        $data = $request->validate([
+            'monthly_customers' => ['required', 'integer', 'min:1', 'max:100000'],
+            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
+            'messages_per_customer' => ['required', 'integer', 'min:1', 'max:10'],
+            'monthly_messages' => ['nullable', 'integer', 'min:1', 'max:1000000'],
+            'sms_segments_per_message' => ['required', 'integer', 'min:1', 'max:10'],
+            'mms_percent' => ['required', 'integer', 'min:0', 'max:100'],
+            'support_level' => ['required', Rule::in(['standard', 'priority', 'dedicated'])],
+        ]);
+
+        return response()->json(['data' => $calculator->calculate($data)]);
     }
 
     private function validated(Request $request, bool $creating = false): array
@@ -60,10 +76,12 @@ class PlatformPlanController extends Controller
             'annual_price_minor' => ['sometimes', 'integer', 'min:0'],
             'currency' => ['sometimes', 'string', 'size:3'],
             'trial_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
+            'trial_message_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'badge' => ['nullable', 'string', 'max:40'],
             'cta_label' => ['sometimes', 'string', 'max:60'],
             'is_featured' => ['sometimes', 'boolean'],
             'is_self_serve' => ['sometimes', 'boolean'],
+            'is_public' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:1000'],
             'features' => ['sometimes', 'array', 'max:30'],
             'features.*' => ['string', 'max:120'],

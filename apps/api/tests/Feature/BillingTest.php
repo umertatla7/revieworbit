@@ -4,6 +4,10 @@ namespace Tests\Feature;
 
 use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Billing\Models\PlatformStripeSetting;
+use App\Domain\Customers\Models\Customer;
+use App\Domain\Messaging\Models\TestMessageDelivery;
+use App\Domain\Messaging\Services\TrialMessageLimiter;
+use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Enums\PlatformRole;
 use App\Domain\Tenancy\Models\Business;
@@ -15,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as StripeRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class BillingTest extends TestCase
@@ -97,11 +102,86 @@ class BillingTest extends TestCase
             ->assertOk()->assertJsonPath('data.client_secret', 'cs_test_secret_checkout')->assertJsonPath('data.publishable_key', 'pk_test_x');
         Http::assertSent(fn (StripeRequest $request): bool => str_ends_with($request->url(), '/v1/checkout/sessions')
             && data_get($request->data(), 'ui_mode') === 'embedded'
-            && data_get($request->data(), 'payment_method_collection') === 'always');
+            && data_get($request->data(), 'payment_method_collection') === 'always'
+            && data_get($request->data(), 'subscription_data.trial_period_days') === 7);
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessA->id, 'stripe_customer_id' => 'cus_test_a']);
 
         $this->actingAs($ownerB)->getJson('/api/v1/billing', ['X-Business-ID' => $businessA->id])->assertNotFound();
         $this->getJson('/api/v1/billing', ['X-Business-ID' => $businessB->id])->assertOk()->assertJsonPath('data.current_plan_code', 'launch');
+    }
+
+    public function test_a_business_cannot_receive_a_second_trial_after_its_first_trial_was_used(): void
+    {
+        [$owner, $business] = $this->owner('No second trial');
+        $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
+        $plan->update(['stripe_monthly_price_id' => 'price_momentum_month']);
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        BusinessSubscription::create([
+            'business_id' => $business->id,
+            'stripe_customer_id' => 'cus_returning',
+            'status' => 'cancelled',
+            'trial_started_at' => now()->subMonth(),
+            'trial_ends_at' => now()->subWeeks(3),
+            'trial_used_at' => now()->subMonth(),
+        ]);
+        Http::fake(['api.stripe.com/v1/checkout/sessions' => Http::response(['client_secret' => 'cs_returning'])]);
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/checkout', ['plan_id' => $plan->id, 'interval' => 'month'], ['X-Business-ID' => $business->id])
+            ->assertOk();
+
+        Http::assertSent(fn (StripeRequest $request): bool => str_ends_with($request->url(), '/v1/checkout/sessions')
+            && data_get($request->data(), 'subscription_data.trial_period_days') === null);
+    }
+
+    public function test_owner_can_quote_and_create_a_private_custom_plan_for_only_their_business(): void
+    {
+        [$owner, $business] = $this->owner('Custom package');
+        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        $payload = [
+            'monthly_customers' => 100,
+            'locations' => 1,
+            'messages_per_customer' => 2,
+            'monthly_messages' => 1000,
+            'sms_segments_per_message' => 1,
+            'mms_percent' => 0,
+            'support_level' => 'standard',
+        ];
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/custom-quote', $payload, ['X-Business-ID' => $business->id])
+            ->assertOk()
+            ->assertJsonPath('data.monthly_price_minor', 6000)
+            ->assertJsonMissingPath('data.gross_margin_percent')
+            ->assertJsonMissingPath('data.breakdown');
+
+        $price = 0;
+        Http::fake(function (StripeRequest $request) use (&$price) {
+            if (str_ends_with($request->url(), '/v1/products')) {
+                return Http::response(['id' => 'prod_custom']);
+            }
+            if (str_ends_with($request->url(), '/v1/prices')) {
+                $price++;
+
+                return Http::response(['id' => $price === 1 ? 'price_custom_month' : 'price_custom_year']);
+            }
+            if (str_ends_with($request->url(), '/v1/billing_portal/configurations')) {
+                return Http::response(['id' => 'bpc_custom']);
+            }
+
+            return Http::response(['error' => ['message' => 'Unexpected request']], 400);
+        });
+
+        $this->actingAs($owner)->postJson('/api/v1/billing/custom-plan', $payload, ['X-Business-ID' => $business->id])
+            ->assertOk()
+            ->assertJsonPath('data.monthly_price_minor', 6000)
+            ->assertJsonPath('data.is_public', false)
+            ->assertJsonMissingPath('data.business_id');
+
+        $this->assertDatabaseHas('subscription_plans', [
+            'business_id' => $business->id,
+            'code' => 'custom-'.$business->id,
+            'monthly_price_minor' => 6000,
+            'stripe_monthly_price_id' => 'price_custom_month',
+        ]);
     }
 
     public function test_public_plans_are_available_for_signup_without_exposing_stripe_ids(): void
@@ -113,6 +193,49 @@ class BillingTest extends TestCase
             ->assertJsonMissing(['stripe_product_id' => 'prod_private'])
             ->assertJsonMissing(['stripe_monthly_price_id' => 'price_private'])
             ->assertJsonMissingPath('data.0.included_message_credits');
+    }
+
+    public function test_trial_message_limit_counts_test_deliveries_and_stops_further_sends(): void
+    {
+        [$owner, $business] = $this->owner('Trial limit');
+        $plan = SubscriptionPlan::where('code', 'launch')->firstOrFail();
+        $plan->update(['trial_message_limit' => 1]);
+        BusinessSubscription::create([
+            'business_id' => $business->id,
+            'subscription_plan_id' => $plan->id,
+            'status' => 'trialing',
+            'trial_started_at' => now()->subMinute(),
+            'trial_ends_at' => now()->addDays(7),
+        ]);
+        $customer = Customer::create([
+            'business_id' => $business->id,
+            'first_name' => 'Test',
+            'phone_e164' => '+12025550123',
+            'phone_hash' => hash('sha256', '+12025550123'),
+            'source' => 'manual',
+        ]);
+        $template = MessageTemplate::create([
+            'business_id' => $business->id,
+            'name' => 'Trial test',
+            'channel' => 'sms',
+            'body' => 'Thank you {{customer_first_name}}.',
+            'status' => 'active',
+        ]);
+        TestMessageDelivery::create([
+            'business_id' => $business->id,
+            'customer_id' => $customer->id,
+            'message_template_id' => $template->id,
+            'requested_by_user_id' => $owner->id,
+            'provider' => 'fake',
+            'channel' => 'sms',
+            'to_hash' => hash('sha256', '+12025550123'),
+            'to_last_four' => '0123',
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        $this->expectException(ValidationException::class);
+        app(TrialMessageLimiter::class)->assertMaySend($business, isTest: true);
     }
 
     public function test_owner_changes_an_existing_subscription_in_app_with_proration(): void

@@ -38,7 +38,7 @@ class AuthController extends Controller
             'postal_code' => ['nullable', 'string', 'max:24'],
             'country' => ['required', 'string', 'size:2'],
             'timezone' => ['required', 'timezone'],
-            'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where(fn ($query) => $query->where('status', 'active')->where('is_self_serve', true))],
+            'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where(fn ($query) => $query->where('status', 'active')->where('is_self_serve', true)->where('is_public', true))],
         ]);
 
         $plan = isset($data['plan_id'])

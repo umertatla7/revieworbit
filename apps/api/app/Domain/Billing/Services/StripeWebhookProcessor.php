@@ -67,6 +67,9 @@ class StripeWebhookProcessor
             'cancel_at_period_end' => (bool) ($object['cancel_at_period_end'] ?? false),
             'cancelled_at' => $this->date($object['canceled_at'] ?? null), 'ended_at' => $this->date($object['ended_at'] ?? null),
         ];
+        if ($trialUsedAt = $this->date($object['trial_start'] ?? null)) {
+            $values['trial_used_at'] = $trialUsedAt;
+        }
         BusinessSubscription::updateOrCreate(['business_id' => $business->id], $values);
         if ($plan && in_array($status, ['trialing', 'active', 'past_due'], true)) {
             $business->update(['plan_code' => $plan->code]);

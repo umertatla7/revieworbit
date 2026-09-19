@@ -21,6 +21,7 @@ type Business = {
   pos_integrations_count: number;
   owners: { name: string; email: string }[];
 };
+type PlanOption = { code: string; name: string; status: string; is_public: boolean; business_id:string|null };
 
 const industries = [
   ["automotive", "Automotive"], ["beauty_wellness", "Beauty & wellness"], ["dental", "Dental"],
@@ -33,6 +34,7 @@ const timezones = ["America/New_York", "America/Chicago", "America/Denver", "Ame
 export default function AdminPage() {
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [plans, setPlans] = useState<PlanOption[]>([]);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -50,9 +52,10 @@ export default function AdminPage() {
     setBusinesses(result.data);
   }
   useEffect(() => {
-    api<{ data: Business[] }>("/api/v1/admin/businesses")
-      .then((result) => setBusinesses(result.data))
-      .catch((error) => setMessage(error.message));
+    void Promise.all([
+      api<{ data: Business[] }>("/api/v1/admin/businesses").then((result) => setBusinesses(result.data)),
+      api<{ data: PlanOption[] }>("/api/v1/admin/plans").then((result) => setPlans(result.data)),
+    ]).catch((error) => setMessage(error.message));
   }, []);
 
   async function createBusiness(formData: FormData) {
@@ -73,6 +76,7 @@ export default function AdminPage() {
           operation_mode: formData.get("operation_mode"), preferred_channel: formData.get("preferred_channel"),
           quiet_hours_start: formData.get("quiet_hours_start"), quiet_hours_end: formData.get("quiet_hours_end"),
           account_notes: formData.get("account_notes") || null,
+          plan_code: formData.get("plan_code"),
           send_owner_setup_email: formData.get("send_owner_setup_email") === "on",
         }),
       });
@@ -262,7 +266,7 @@ export default function AdminPage() {
               </div>
               <div className="space-y-2">
                 <select aria-label={`Plan for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs capitalize" value={business.plan_code} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { plan_code: event.target.value })}>
-                  <option value="launch">Launch plan</option><option value="momentum">Momentum plan</option><option value="expansion">Expansion plan</option><option value="enterprise">Enterprise plan</option>
+                  {plans.filter((plan) => plan.status !== "archived" && (plan.is_public || !plan.business_id || plan.business_id===business.id)).map((plan)=><option value={plan.code} key={plan.code}>{plan.name}{plan.is_public ? "" : " · private"}</option>)}
                 </select>
                 <select aria-label={`Status for ${business.name}`} className="w-full rounded-lg border border-ink/10 bg-white px-2.5 py-2 text-xs" value={business.status} disabled={busyId === business.id} onChange={(event) => updateBusiness(business, { status: event.target.value })}>
                   <option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option>
@@ -308,7 +312,7 @@ export default function AdminPage() {
               <div className="grid gap-4 sm:grid-cols-2"><FormField label="Location name" required><input name="location_name" className="field" required placeholder="Downtown clinic" /></FormField><FormField label="Location phone" hint="Optional · defaults to business phone"><input name="location_phone" className="field" type="tel" pattern="\+[1-9][0-9]{7,14}" placeholder="+12025550123" /></FormField><FormField label="Street address" required><input name="address_line1" className="field" required autoComplete="address-line1" placeholder="125 Harbor Avenue" /></FormField><FormField label="Suite / unit" hint="Optional"><input name="address_line2" className="field" autoComplete="address-line2" placeholder="Suite 200" /></FormField><FormField label="City" required><input name="city" className="field" required autoComplete="address-level2" placeholder="Boston" /></FormField><FormField label="State / province" required><input name="region" className="field" required autoComplete="address-level1" placeholder="MA" /></FormField><FormField label="Postal code" required><input name="postal_code" className="field" required autoComplete="postal-code" placeholder="02110" /></FormField><FormField label="Country" required><select name="country" className="field" defaultValue="US" required><option value="US">United States</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="PK">Pakistan</option><option value="AE">United Arab Emirates</option></select></FormField><FormField label="Time zone" required><select name="timezone" className="field" defaultValue="America/New_York" required>{timezones.map((timezone) => <option value={timezone} key={timezone}>{timezone.replaceAll("_", " ")}</option>)}</select></FormField><FormField label="Google review URL" hint="Optional during account creation"><input name="google_review_url" className="field" type="url" placeholder="https://g.page/r/.../review" /></FormField></div>
             </FormSection>
             <FormSection number="05" title="Service defaults" description="Initial delivery and integration preferences; these remain editable during onboarding.">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><FormField label="POS setup" required><select name="operation_mode" className="field" defaultValue="square"><option value="square">Connect Square</option><option value="toast">Connect Toast</option><option value="generic">Generic API / POS</option><option value="manual">Manual visits</option></select></FormField><FormField label="Preferred channel" required><select name="preferred_channel" className="field" defaultValue="sms"><option value="sms">SMS</option></select></FormField><FormField label="Quiet hours start" required><input name="quiet_hours_start" className="field" type="time" defaultValue="20:00" required /></FormField><FormField label="Quiet hours end" required><input name="quiet_hours_end" className="field" type="time" defaultValue="09:00" required /></FormField></div><FormField label="Internal setup notes" hint="Optional · visible to platform staff only"><textarea name="account_notes" className="field mt-1 min-h-24 resize-y" maxLength={2000} placeholder="Customer requested concierge POS setup. Main contact is available weekday mornings." /></FormField>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"><FormField label="Plan" required><select name="plan_code" className="field" defaultValue="launch" required>{plans.filter((plan)=>plan.status!=="archived"&&(plan.is_public||!plan.business_id)).map((plan)=><option value={plan.code} key={plan.code}>{plan.name}{plan.is_public ? "" : " · private"}</option>)}</select></FormField><FormField label="POS setup" required><select name="operation_mode" className="field" defaultValue="square"><option value="square">Connect Square</option><option value="toast">Connect Toast</option><option value="generic">Generic API / POS</option><option value="manual">Manual visits</option></select></FormField><FormField label="Preferred channel" required><select name="preferred_channel" className="field" defaultValue="sms"><option value="sms">SMS</option></select></FormField><FormField label="Quiet hours start" required><input name="quiet_hours_start" className="field" type="time" defaultValue="20:00" required /></FormField><FormField label="Quiet hours end" required><input name="quiet_hours_end" className="field" type="time" defaultValue="09:00" required /></FormField></div><FormField label="Internal setup notes" hint="Optional · visible to platform staff only"><textarea name="account_notes" className="field mt-1 min-h-24 resize-y" maxLength={2000} placeholder="Customer requested concierge POS setup. Main contact is available weekday mornings." /></FormField>
             </FormSection>
             <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t border-ink/8 bg-white/95 px-6 py-4 backdrop-blur"><p className="hidden text-xs text-ink/40 sm:block">Required fields are marked with *</p><div className="ml-auto flex gap-2">
               <button
