@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Breviews backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=breviews-backup.service
+
+[Install]
+WantedBy=timers.target
