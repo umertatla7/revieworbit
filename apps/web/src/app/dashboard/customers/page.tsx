@@ -755,7 +755,7 @@ function ImportDialog({
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "revieworbit-customer-import-template.csv";
+    anchor.download = "breviews-customer-import-template.csv";
     anchor.click();
     URL.revokeObjectURL(url);
   }

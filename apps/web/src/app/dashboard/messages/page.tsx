@@ -155,7 +155,7 @@ export default function MessagesPage() {
           {platform?.provider === "fake" && (
             <p className="rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-800">
               Local safe mode is active. Messages are recorded through the fake
-              provider and never leave ReviewOrbit.
+              provider and never leave Breviews.
             </p>
           )}
           <label className="label">
@@ -234,7 +234,7 @@ export default function MessagesPage() {
                 • A Messaging Service chooses from its approved SMS sender pool.
               </li>
               <li>
-                • ReviewOrbit never accepts an arbitrary unverified From number.
+                • Breviews never accepts an arbitrary unverified From number.
               </li>
             </ul>
           </section>

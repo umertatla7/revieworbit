@@ -18,7 +18,7 @@ class StripeGateway
     {
         $setting = PlatformStripeSetting::query()->latest()->first();
         if (! $setting?->secret_key || $setting->status !== 'verified') {
-            throw ValidationException::withMessages(['billing' => ['Stripe is not ready yet. Please contact ReviewOrbit support.']]);
+            throw ValidationException::withMessages(['billing' => ['Stripe is not ready yet. Please contact Breviews support.']]);
         }
 
         return $setting;
@@ -285,7 +285,7 @@ class StripeGateway
             ->map(fn (SubscriptionPlan $plan): array => ['product' => $plan->stripe_product_id, 'prices' => array_values(array_filter([$plan->stripe_monthly_price_id, $plan->stripe_annual_price_id]))])
             ->filter(fn (array $product): bool => $product['prices'] !== [])->values()->all();
         $payload = [
-            'business_profile' => ['headline' => 'Manage your ReviewOrbit subscription'],
+            'business_profile' => ['headline' => 'Manage your Breviews subscription'],
             'features' => [
                 'customer_update' => ['enabled' => 'true', 'allowed_updates' => ['email', 'address', 'tax_id']],
                 'invoice_history' => ['enabled' => 'true'],

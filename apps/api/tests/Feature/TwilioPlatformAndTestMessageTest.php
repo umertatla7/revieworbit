@@ -126,7 +126,7 @@ class TwilioPlatformAndTestMessageTest extends TestCase
         $this->assertDatabaseMissing('test_message_deliveries', ['business_id' => $businessB->id]);
         $this->assertDatabaseHas('audit_logs', ['business_id' => $businessA->id, 'action' => 'template.test_message_sent']);
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/Messages.json')
-            && str_starts_with((string) $request['Body'], '[ReviewOrbit test]')
+            && str_starts_with((string) $request['Body'], '[Breviews test]')
             && $request['To'] === $customerA->phone_e164);
     }
 

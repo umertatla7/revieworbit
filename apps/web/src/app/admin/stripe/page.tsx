@@ -67,7 +67,7 @@ export default function StripeSetupPage() {
 
   return <div className="mx-auto max-w-6xl">
     <div className="flex flex-wrap items-end justify-between gap-5">
-      <div><p className="eyebrow">Payment infrastructure</p><h1 className="page-title">Stripe configuration</h1><p className="page-intro">Connect one ReviewOrbit Stripe account. Customer card details remain on Stripe and are never stored in ReviewOrbit.</p></div>
+      <div><p className="eyebrow">Payment infrastructure</p><h1 className="page-title">Stripe configuration</h1><p className="page-intro">Connect one Breviews Stripe account. Customer card details remain on Stripe and are never stored in Breviews.</p></div>
       <span className={`pill ${settings?.status === "verified" ? "bg-mint/30" : ""}`}>{settings?.status?.replaceAll("_", " ") ?? "Loading"}</span>
     </div>
     {message && <p className="mt-5 rounded-xl border border-ink/8 bg-white px-4 py-3 text-sm">{message}</p>}

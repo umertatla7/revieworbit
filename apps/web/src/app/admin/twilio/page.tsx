@@ -66,7 +66,7 @@ export default function AdminTwilioPage() {
     <header className="border-b border-ink/8 pb-6">
       <p className="eyebrow">Configuration · Messaging provider</p>
       <h1 className="page-title">Twilio platform connection</h1>
-      <p className="page-intro">Connect the ReviewOrbit-owned Twilio account once. Credentials are encrypted and never shown again; each customer workspace then uses its own Messaging Service.</p>
+      <p className="page-intro">Connect the Breviews-owned Twilio account once. Credentials are encrypted and never shown again; each customer workspace then uses its own Messaging Service.</p>
     </header>
 
     {message && <p role="status" className="mt-5 rounded-xl border border-forest/15 bg-white px-4 py-3 text-sm text-forest">{message}</p>}
@@ -80,7 +80,7 @@ export default function AdminTwilioPage() {
         </label>
         <label className="label">Auth Token
           <PasswordInput className="field font-mono" name="auth_token" autoComplete="new-password" placeholder={setting?.auth_token_configured ? "Saved securely — leave blank to keep it" : "Enter the Twilio Auth Token"} />
-          <span className="mt-2 block text-xs font-normal text-ink/45">ReviewOrbit requires the Auth Token for signed webhooks and parent-account access. It is encrypted at rest and never returned to the browser.</span>
+          <span className="mt-2 block text-xs font-normal text-ink/45">Breviews requires the Auth Token for signed webhooks and parent-account access. It is encrypted at rest and never returned to the browser.</span>
         </label>
         <label className="label">Account mode
           <select className="field" name="mode" defaultValue={setting?.mode ?? "trial"}><option value="trial">Trial testing</option><option value="production">Production</option></select>

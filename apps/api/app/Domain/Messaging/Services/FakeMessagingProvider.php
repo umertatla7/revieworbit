@@ -15,6 +15,6 @@ class FakeMessagingProvider implements MessagingProvider
 
     public function verify(MessagingConfiguration $configuration): array
     {
-        return ['name' => 'ReviewOrbit fake provider', 'sid' => $configuration->twilio_messaging_service_sid ?? 'MGFAKE'];
+        return ['name' => 'Breviews fake provider', 'sid' => $configuration->twilio_messaging_service_sid ?? 'MGFAKE'];
     }
 }

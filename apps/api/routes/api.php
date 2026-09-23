@@ -48,7 +48,7 @@ Route::get('/health/ready', function (): JsonResponse {
 Route::prefix('api/v1')->group(function (): void {
     Route::get('/status', fn (): JsonResponse => response()->json([
         'data' => [
-            'name' => 'ReviewOrbit API',
+            'name' => 'Breviews API',
             'version' => 'v1',
         ],
     ]));

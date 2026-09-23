@@ -2,10 +2,6 @@
     email {$TLS_EMAIL}
 }
 
-{$ROOT_DOMAIN}, www.{$ROOT_DOMAIN} {
-    redir https://{$WEB_DOMAIN}{uri} permanent
-}
-
 {$WEB_DOMAIN} {
     encode zstd gzip
     reverse_proxy web:3000

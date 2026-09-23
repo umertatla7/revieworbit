@@ -51,5 +51,5 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  return <WorkspaceShell groups={adminNavigation} mode="platform" userName={user?.name ?? "ReviewOrbit Admin"} userDetail={user?.platform_roles?.join(" · ") ?? "platform administrator"} onLogout={logout}>{children}</WorkspaceShell>;
+  return <WorkspaceShell groups={adminNavigation} mode="platform" userName={user?.name ?? "Breviews Admin"} userDetail={user?.platform_roles?.join(" · ") ?? "platform administrator"} onLogout={logout}>{children}</WorkspaceShell>;
 }

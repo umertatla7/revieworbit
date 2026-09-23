@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ReviewOrbit",
+  title: "Breviews",
   description: "Consent-aware automated review requests for local businesses.",
 };
 

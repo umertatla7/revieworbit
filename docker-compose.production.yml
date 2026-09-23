@@ -128,7 +128,7 @@ services:
       - .env.production
     environment:
       PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "True"
-      PGADMIN_CONFIG_LOGIN_BANNER: "'Authorised ReviewOrbit administrators only'"
+      PGADMIN_CONFIG_LOGIN_BANNER: "'Authorised Breviews administrators only'"
     restart: unless-stopped
     volumes:
       - pgadmin_data:/var/lib/pgadmin

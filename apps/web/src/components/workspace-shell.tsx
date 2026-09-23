@@ -91,11 +91,11 @@ export function WorkspaceShell({
           className="flex items-center gap-3"
         >
           <span className="grid size-9 place-items-center rounded-xl bg-mint text-xs font-black text-ink">
-            RO
+            BR
           </span>
           <span>
             <strong className="block text-[15px] tracking-tight">
-              ReviewOrbit
+              Breviews
             </strong>
             <span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
               {mode === "platform" ? "Platform console" : "Business workspace"}
@@ -278,7 +278,7 @@ function initials(value: string) {
       .map((part) => part[0])
       .join("")
       .slice(0, 2)
-      .toUpperCase() || "RO"
+      .toUpperCase() || "BR"
   );
 }
 

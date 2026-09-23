@@ -22,7 +22,7 @@ class PosIntegrationController extends Controller
             'providers' => [
                 ['id' => 'generic', 'name' => 'Generic POS / API', 'availability' => 'available', 'description' => 'Connect any POS that can send completed-visit events using an API key or signed webhook.'],
                 ['id' => 'square', 'name' => 'Square Appointments', 'availability' => $square->configured() ? 'available' : 'configuration required', 'configured' => $square->configured(), 'description' => 'Connect securely with Square OAuth and import locations, customers, previous appointments, and upcoming appointments.'],
-                ['id' => 'toast', 'name' => 'Toast POS', 'availability' => $toast->configured() ? 'available' : 'partner setup required', 'configured' => $toast->configured(), 'description' => 'Connect each Toast restaurant location using its ReviewOrbit location code. Completed checks are imported as visits; contact data never implies messaging consent.'],
+                ['id' => 'toast', 'name' => 'Toast POS', 'availability' => $toast->configured() ? 'available' : 'partner setup required', 'configured' => $toast->configured(), 'description' => 'Connect each Toast restaurant location using its Breviews location code. Completed checks are imported as visits; contact data never implies messaging consent.'],
                 ['id' => 'manual', 'name' => 'Manual mode', 'availability' => 'available', 'description' => 'Record completed visits from the dashboard without connecting a POS.'],
             ],
         ]]);

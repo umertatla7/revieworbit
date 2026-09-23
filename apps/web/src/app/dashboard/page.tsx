@@ -114,7 +114,7 @@ export default function DashboardPage() {
         <div>
           <p className="eyebrow">Workspace overview</p>
           <h1 className="page-title">
-            Welcome back, {business?.name ?? "ReviewOrbit"}
+            Welcome back, {business?.name ?? "Breviews"}
           </h1>
           <p className="page-intro">
             Your business activity and setup, explained in one place.

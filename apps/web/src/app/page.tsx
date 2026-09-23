@@ -5,8 +5,8 @@ export default function Home() {
     <div className="min-h-screen bg-paper text-ink">
       <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-7 lg:px-10">
         <a href="#" className="flex items-center gap-3 text-lg font-semibold tracking-tight">
-          <span className="grid size-9 place-items-center rounded-xl bg-forest text-sm font-bold text-white">RO</span>
-          ReviewOrbit
+          <span className="grid size-9 place-items-center rounded-xl bg-forest text-sm font-bold text-white">BR</span>
+          Breviews
         </a>
         <div className="flex items-center gap-3"><Link href="/login" className="text-sm font-semibold text-forest">Sign in</Link><Link href="/register" className="rounded-full bg-forest px-5 py-3 text-sm font-semibold text-white">Start free</Link></div>
       </header>
@@ -18,7 +18,7 @@ export default function Home() {
             Turn completed visits into honest feedback.
           </h1>
           <p className="mt-8 max-w-2xl text-lg leading-8 text-ink/65">
-            ReviewOrbit connects visits, consent, and personalized messaging in one tenant-safe workflow—without review gating or false attribution.
+            Breviews connects visits, consent, and personalized messaging in one tenant-safe workflow—without review gating or false attribution.
           </p>
           <div className="mt-10 flex flex-wrap gap-3 text-sm font-semibold">
             <span className="rounded-full bg-mint px-5 py-3">Consent-aware</span>

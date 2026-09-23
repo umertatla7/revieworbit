@@ -208,7 +208,7 @@ export default function AdminBillingPage() {
       location_limit: quote.usage.locations,
       ...quote.recommended_allowances,
       is_self_serve: false, is_public: false, trial_days: 0, trial_message_limit: 0,
-      cta_label: "Contact ReviewOrbit", status: "draft",
+      cta_label: "Contact Breviews", status: "draft",
     });
   }
 
@@ -276,7 +276,7 @@ function PlanDialog({ plan, busy, close, save }: { plan: Partial<Plan>; busy: bo
       <Field name="name" label="Plan name" value={plan.name} /><Field name="code" label="Code" value={plan.code} disabled={Boolean(plan.id)} hint="Lowercase letters, numbers, and hyphens only." />
       <label className="label sm:col-span-2">Customer-facing description<textarea className="field min-h-24" name="description" defaultValue={plan.description ?? ""} /></label>
       <Field name="monthly_price_minor" label="Monthly price (cents)" value={plan.monthly_price_minor} number /><Field name="annual_price_minor" label="Annual price (cents)" value={plan.annual_price_minor} number />
-      <Field name="currency" label="Currency" value={plan.currency} /><Field name="trial_days" label="Free trial days" value={plan.trial_days} number /><Field name="trial_message_limit" label="Trial test-message limit" value={plan.trial_message_limit ?? 10} number hint="Live and automated customer sends unlock after activation; this caps ReviewOrbit-branded test sends during the trial." />
+      <Field name="currency" label="Currency" value={plan.currency} /><Field name="trial_days" label="Free trial days" value={plan.trial_days} number /><Field name="trial_message_limit" label="Trial test-message limit" value={plan.trial_message_limit ?? 10} number hint="Live and automated customer sends unlock after activation; this caps Breviews-branded test sends during the trial." />
       <Field name="badge" label="Badge (optional)" value={plan.badge ?? ""} required={false} /><Field name="cta_label" label="Button label" value={plan.cta_label} /><Field name="sort_order" label="Display order" value={plan.sort_order} number />
       <label className="label">Status<select className="field" name="status" defaultValue={plan.status}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>
       <label className="mt-7 flex gap-2 text-sm"><input type="checkbox" name="is_featured" defaultChecked={plan.is_featured} /> Feature this plan</label>
