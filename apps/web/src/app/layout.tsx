@@ -2,8 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Breviews",
+  title: "B Reviews",
   description: "Consent-aware automated review requests for local businesses.",
+  icons: {
+    icon: "/b-review-icon.png",
+    apple: "/b-review-icon.png",
+  },
 };
 
 export default function RootLayout({

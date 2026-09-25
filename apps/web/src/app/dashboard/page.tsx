@@ -114,7 +114,7 @@ export default function DashboardPage() {
         <div>
           <p className="eyebrow">Workspace overview</p>
           <h1 className="page-title">
-            Welcome back, {business?.name ?? "Breviews"}
+            Welcome back, {business?.name ?? "B Reviews"}
           </h1>
           <p className="page-intro">
             Your business activity and setup, explained in one place.
@@ -216,8 +216,8 @@ export default function DashboardPage() {
             />
           </div>
         </section>
-        <aside className="rounded-xl bg-[#17231f] p-5 text-white">
-          <p className="eyebrow text-mint">Connection status</p>
+        <aside className="rounded-xl bg-[#1d275f] p-5 text-white">
+          <p className="eyebrow text-[#ffb0b6]">Connection status</p>
           <Status
             label="Location & review link"
             ready={
@@ -362,7 +362,7 @@ function Status({
       className="mt-3 flex items-center gap-3 rounded-xl bg-white/6 p-3 transition hover:bg-white/10"
     >
       <span
-        className={`grid size-7 shrink-0 place-items-center rounded-full text-xs ${ready ? "bg-mint text-ink" : "bg-white/10 text-white/50"}`}
+        className={`grid size-7 shrink-0 place-items-center rounded-full text-xs ${ready ? "bg-mint text-white" : "bg-white/10 text-white/50"}`}
       >
         {ready ? "✓" : "→"}
       </span>

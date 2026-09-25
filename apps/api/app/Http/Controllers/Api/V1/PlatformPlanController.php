@@ -25,6 +25,7 @@ class PlatformPlanController extends Controller
     public function store(Request $request, Auditor $auditor): JsonResponse
     {
         $data = $this->validated($request, true);
+        $data = $this->withAnnualPrice($data);
         $data = array_merge($data, $this->inclusiveMessagingDefaults());
         $model = SubscriptionPlan::create($data);
         $auditor->record($request, 'subscription_plan.created', $model, ['code' => $model->code]);
@@ -36,6 +37,7 @@ class PlatformPlanController extends Controller
     {
         $model = SubscriptionPlan::findOrFail($plan);
         $data = $this->validated($request);
+        $data = $this->withAnnualPrice($data, $model);
         $data = array_merge($data, $this->inclusiveMessagingDefaults());
         $model->update($data);
         $auditor->record($request, 'subscription_plan.updated', $model, array_keys($data));
@@ -121,6 +123,7 @@ class PlatformPlanController extends Controller
             'description' => ['nullable', 'string', 'max:500'],
             'monthly_price_minor' => ['sometimes', 'integer', 'min:0'],
             'annual_price_minor' => ['sometimes', 'integer', 'min:0'],
+            'annual_discount_months' => ['sometimes', 'integer', 'min:0', 'max:11'],
             'currency' => ['sometimes', 'string', 'size:3'],
             'trial_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
             'trial_message_limit' => ['sometimes', 'integer', 'min:0', 'max:1000'],
@@ -147,6 +150,17 @@ class PlatformPlanController extends Controller
             'review_providers.*' => [Rule::in(['google', 'trustpilot', 'facebook', 'yelp', 'other'])],
             'status' => ['sometimes', Rule::in(['draft', 'active', 'archived'])],
         ]);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function withAnnualPrice(array $data, ?SubscriptionPlan $plan = null): array
+    {
+        $monthlyPrice = (int) ($data['monthly_price_minor'] ?? $plan?->monthly_price_minor ?? 0);
+        $discountMonths = (int) ($data['annual_discount_months'] ?? $plan?->annual_discount_months ?? 2);
+        $data['annual_discount_months'] = $discountMonths;
+        $data['annual_price_minor'] = $monthlyPrice * (12 - $discountMonths);
+
+        return $data;
     }
 
     /**

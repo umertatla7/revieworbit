@@ -21,6 +21,7 @@ class CustomPlanManager
                 'description' => 'A private package configured for your business.',
                 'monthly_price_minor' => $quote['monthly_price_minor'],
                 'annual_price_minor' => $quote['annual_price_minor'],
+                'annual_discount_months' => $quote['annual_discount_months'] ?? 2,
                 'currency' => $quote['currency'],
                 'trial_days' => $trialDays,
                 'trial_message_limit' => $trialDays > 0 ? 10 : 0,

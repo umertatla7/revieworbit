@@ -71,7 +71,7 @@ async function fetchWithRetry(input: string, init: RequestInit): Promise<Respons
     try {
       return await fetch(input, init);
     } catch {
-      throw new ApiError("Unable to reach Breviews. Check your connection and try again.", 0);
+      throw new ApiError("Unable to reach B Reviews. Check your connection and try again.", 0);
     }
   }
 }

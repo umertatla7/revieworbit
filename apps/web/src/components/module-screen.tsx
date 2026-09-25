@@ -112,8 +112,8 @@ export function ModuleScreen({ module }: { module: ModuleDefinition }) {
                   : "Navigation and information architecture are ready. Actions remain disabled until the backend workflow is implemented and tested."}
             </p>
           </section>
-          <section className="rounded-xl bg-[#17231f] p-5 text-white">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-mint">
+          <section className="rounded-xl bg-[#1d275f] p-5 text-white">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#ffb0b6]">
               Safe by default
             </p>
             <p className="mt-3 text-sm font-semibold">

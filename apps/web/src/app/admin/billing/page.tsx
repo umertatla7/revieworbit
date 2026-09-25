@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 
 type Plan = {
   id: string; code: string; name: string; description: string | null;
-  monthly_price_minor: number; annual_price_minor: number; currency: string;
+  monthly_price_minor: number; annual_price_minor: number; annual_discount_months?: number; currency: string;
   trial_days: number; trial_message_limit: number; badge: string | null; is_featured: boolean; sort_order: number;
   cta_label: string; is_self_serve: boolean; is_public: boolean; monthly_customer_limit: number | null;
   features: string[] | null; status: string; stripe_product_id: string | null;
@@ -23,7 +23,7 @@ type QuoteRequest = {
   mms_percent: number; support_level: string;
 };
 type Quote = {
-  currency: string; monthly_price_minor: number; annual_price_minor: number;
+  currency: string; monthly_price_minor: number; annual_price_minor: number; annual_discount_months?: number;
   gross_profit_minor: number; gross_margin_percent: number; estimated_monthly_cost_minor: number;
   one_time_a2p_registration_minor: number;
   usage: { monthly_customers: number; messages: number; sms_messages: number; sms_segments: number; mms_messages: number; locations: number };
@@ -34,7 +34,7 @@ type Quote = {
 
 const emptyPlan: Partial<Plan> = {
   code: "", name: "", description: "", monthly_price_minor: 0,
-  annual_price_minor: 0, currency: "USD", trial_days: 7, trial_message_limit: 10, badge: "",
+  annual_price_minor: 0, annual_discount_months: 2, currency: "USD", trial_days: 7, trial_message_limit: 10, badge: "",
   is_featured: false, is_self_serve: true, is_public: true, cta_label: "Start Free Trial", sort_order: 10, features: [], status: "draft",
   location_limit: 1, template_limit: 5, automation_limit: 1,
   automation_step_limit: 2, media_template_limit: 1,
@@ -98,7 +98,7 @@ export default function AdminBillingPage() {
     setBusy(true);
     setMessage("");
     const numberKeys = [
-      "monthly_price_minor", "annual_price_minor", "trial_days", "trial_message_limit", "sort_order",
+      "monthly_price_minor", "annual_discount_months", "trial_days", "trial_message_limit", "sort_order",
       "location_limit", "template_limit", "automation_limit", "automation_step_limit",
       "media_template_limit", "review_destination_limit",
     ];
@@ -204,11 +204,12 @@ export default function AdminBillingPage() {
       name: "Custom customer plan", code: "", description: "",
       monthly_price_minor: quote.monthly_price_minor,
       annual_price_minor: quote.annual_price_minor,
+      annual_discount_months: quote.annual_discount_months ?? 2,
       monthly_customer_limit: quote.usage.monthly_customers,
       location_limit: quote.usage.locations,
       ...quote.recommended_allowances,
       is_self_serve: false, is_public: false, trial_days: 0, trial_message_limit: 0,
-      cta_label: "Contact Breviews", status: "draft",
+      cta_label: "Contact B Reviews", status: "draft",
     });
   }
 
@@ -231,7 +232,7 @@ export default function AdminBillingPage() {
             <p className="eyebrow">{plan.code} · {plan.status}</p><h2 className="mt-2 text-2xl font-semibold">{plan.name}</h2>
             <p className="mt-2 min-h-12 text-sm leading-6 text-ink/50">{plan.description}</p>
             <p className="mt-5 text-3xl font-semibold">{plan.monthly_price_minor > 0 ? money(plan.monthly_price_minor, plan.currency) : "Custom"}{plan.monthly_price_minor > 0&&<span className="text-xs font-normal text-ink/45"> / month</span>}</p>
-            <p className="mt-1 text-xs text-ink/45">{plan.monthly_price_minor > 0 ? `${money(plan.annual_price_minor, plan.currency)} annually · ${plan.trial_days}-day trial · ${plan.trial_message_limit} trial messages` : plan.cta_label}</p>
+            <p className="mt-1 text-xs text-ink/45">{plan.monthly_price_minor > 0 ? `${money(plan.annual_price_minor, plan.currency)} annually · ${plan.annual_discount_months ?? 2} months free · ${plan.trial_days}-day trial · ${plan.trial_message_limit} trial messages` : plan.cta_label}</p>
             <div className="mt-5 grid grid-cols-2 gap-2"><Limit label="Customers / month" value={plan.monthly_customer_limit ?? "Custom"} /><Limit label="Locations" value={plan.location_limit} /><Limit label="Templates" value={plan.template_limit} /><Limit label="Automations" value={plan.automation_limit} /><Limit label="Review links" value={plan.review_destination_limit} /><Limit label="Media" value={plan.media_template_limit} /></div>
             <p className="mt-4 rounded-lg bg-paper px-3 py-2 text-xs text-ink/60">Real database plan · No per-message or overage charges.</p>
             <p className="mt-3 text-xs text-ink/45">{plan.is_public ? "Public comparison plan" : "Private customer-specific plan"}</p>
@@ -275,8 +276,8 @@ function PlanDialog({ plan, busy, close, save }: { plan: Partial<Plan>; busy: bo
     <div className="mt-6 grid gap-4 sm:grid-cols-2">
       <Field name="name" label="Plan name" value={plan.name} /><Field name="code" label="Code" value={plan.code} disabled={Boolean(plan.id)} hint="Lowercase letters, numbers, and hyphens only." />
       <label className="label sm:col-span-2">Customer-facing description<textarea className="field min-h-24" name="description" defaultValue={plan.description ?? ""} /></label>
-      <Field name="monthly_price_minor" label="Monthly price (cents)" value={plan.monthly_price_minor} number /><Field name="annual_price_minor" label="Annual price (cents)" value={plan.annual_price_minor} number />
-      <Field name="currency" label="Currency" value={plan.currency} /><Field name="trial_days" label="Free trial days" value={plan.trial_days} number /><Field name="trial_message_limit" label="Trial test-message limit" value={plan.trial_message_limit ?? 10} number hint="Live and automated customer sends unlock after activation; this caps Breviews-branded test sends during the trial." />
+      <Field name="monthly_price_minor" label="Monthly price (cents)" value={plan.monthly_price_minor} number /><Field name="annual_discount_months" label="Annual discount (free months)" value={plan.annual_discount_months ?? 2} number hint={`Annual price is calculated automatically. The current annual price is ${money(plan.annual_price_minor ?? 0, plan.currency ?? "USD")}.`} />
+      <Field name="currency" label="Currency" value={plan.currency} /><Field name="trial_days" label="Free trial days" value={plan.trial_days} number /><Field name="trial_message_limit" label="Trial test-message limit" value={plan.trial_message_limit ?? 10} number hint="Live and automated customer sends unlock after activation; this caps B Reviews-branded test sends during the trial." />
       <Field name="badge" label="Badge (optional)" value={plan.badge ?? ""} required={false} /><Field name="cta_label" label="Button label" value={plan.cta_label} /><Field name="sort_order" label="Display order" value={plan.sort_order} number />
       <label className="label">Status<select className="field" name="status" defaultValue={plan.status}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>
       <label className="mt-7 flex gap-2 text-sm"><input type="checkbox" name="is_featured" defaultChecked={plan.is_featured} /> Feature this plan</label>
@@ -305,11 +306,11 @@ function QuoteResult({ quote, create, assign, assignBusy, canAssign, businessNam
     ["Stripe estimate", quote.breakdown.stripe_minor], ["Operations allowance", quote.breakdown.operations_allowance_minor],
   ] as const;
   return <div className="rounded-2xl bg-forest p-6 text-white">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-mint">Recommended package</p><p className="mt-2 text-4xl font-semibold">{money(quote.monthly_price_minor, quote.currency)}<span className="text-sm font-normal text-white/55"> / month</span></p><p className="mt-1 text-xs text-white/55">{money(quote.annual_price_minor, quote.currency)} annually</p></div><div className="rounded-xl bg-white/10 px-4 py-3 text-right"><span className="text-xs text-white/55">Projected margin</span><strong className="block text-2xl text-mint">{quote.gross_margin_percent}%</strong></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-[#ffb0b6]">Recommended package</p><p className="mt-2 text-4xl font-semibold">{money(quote.monthly_price_minor, quote.currency)}<span className="text-sm font-normal text-white/55"> / month</span></p><p className="mt-1 text-xs text-white/55">{money(quote.annual_price_minor, quote.currency)} annually</p></div><div className="rounded-xl bg-white/10 px-4 py-3 text-right"><span className="text-xs text-white/55">Projected margin</span><strong className="block text-2xl text-[#ffb0b6]">{quote.gross_margin_percent}%</strong></div></div>
     <div className="mt-5 grid grid-cols-2 gap-2 text-xs"><LimitDark label="Customers" value={quote.usage.monthly_customers.toLocaleString()} /><LimitDark label="Messages" value={quote.usage.messages.toLocaleString()} /><LimitDark label="SMS segments" value={quote.usage.sms_segments.toLocaleString()} /><LimitDark label="MMS" value={quote.usage.mms_messages.toLocaleString()} /></div>
-    <div className="mt-5 space-y-2 border-t border-white/15 pt-4 text-xs">{rows.map(([label, value])=><div className="flex justify-between" key={label}><span className="text-white/60">{label}</span><strong>{money(value, quote.currency)}</strong></div>)}<div className="flex justify-between border-t border-white/15 pt-2"><span>Estimated monthly cost</span><strong>{money(quote.estimated_monthly_cost_minor, quote.currency)}</strong></div><div className="flex justify-between text-mint"><span>Estimated gross profit</span><strong>{money(quote.gross_profit_minor, quote.currency)}</strong></div></div>
+    <div className="mt-5 space-y-2 border-t border-white/15 pt-4 text-xs">{rows.map(([label, value])=><div className="flex justify-between" key={label}><span className="text-white/60">{label}</span><strong>{money(value, quote.currency)}</strong></div>)}<div className="flex justify-between border-t border-white/15 pt-2"><span>Estimated monthly cost</span><strong>{money(quote.estimated_monthly_cost_minor, quote.currency)}</strong></div><div className="flex justify-between text-[#ffb0b6]"><span>Estimated gross profit</span><strong>{money(quote.gross_profit_minor, quote.currency)}</strong></div></div>
     <p className="mt-4 text-xs leading-5 text-white/55">One-time A2P registration estimate: {money(quote.one_time_a2p_registration_minor, quote.currency)}. Final cost varies by carrier, encoding, taxes, and registration type.</p>
-    <button type="button" disabled={!canAssign || assignBusy} className="mt-5 w-full rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-ink disabled:opacity-40" onClick={assign}>{assignBusy ? "Assigning package…" : businessName ? `Create and assign to ${businessName}` : "Select a customer to assign"}</button>
+    <button type="button" disabled={!canAssign || assignBusy} className="mt-5 w-full rounded-xl bg-mint px-4 py-3 text-sm font-semibold text-white disabled:opacity-40" onClick={assign}>{assignBusy ? "Assigning package…" : businessName ? `Create and assign to ${businessName}` : "Select a customer to assign"}</button>
     <button type="button" className="mt-3 w-full rounded-xl border border-white/25 px-4 py-3 text-sm font-semibold" onClick={create}>Copy values into manual plan builder</button>
   </div>;
 }

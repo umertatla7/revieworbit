@@ -75,6 +75,28 @@ class BillingTest extends TestCase
             ->assertJsonPath('data.estimated_mms_provider_cost_minor', 0);
     }
 
+    public function test_annual_price_is_calculated_from_the_configurable_free_months(): void
+    {
+        $admin = $this->admin();
+        $response = $this->actingAs($admin)->postJson('/api/v1/admin/plans', [
+            'code' => 'annual-offer',
+            'name' => 'Annual offer',
+            'monthly_price_minor' => 4900,
+            'annual_price_minor' => 999999,
+            'annual_discount_months' => 2,
+            'review_providers' => ['google'],
+        ])->assertCreated()
+            ->assertJsonPath('data.annual_discount_months', 2)
+            ->assertJsonPath('data.annual_price_minor', 49000);
+
+        $planId = $response->json('data.id');
+        $this->actingAs($admin)->patchJson("/api/v1/admin/plans/{$planId}", [
+            'annual_discount_months' => 1,
+        ])->assertOk()
+            ->assertJsonPath('data.annual_discount_months', 1)
+            ->assertJsonPath('data.annual_price_minor', 53900);
+    }
+
     public function test_super_admin_can_load_usage_without_unrelated_model_relationships(): void
     {
         [, $business] = $this->owner('Usage');

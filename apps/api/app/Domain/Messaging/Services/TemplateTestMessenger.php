@@ -68,7 +68,7 @@ class TemplateTestMessenger
         $template->loadMissing(['business.locations', 'mediaTemplate']);
         $location = $template->business->locations->first();
         $testLink = rtrim(config('services.frontend.url'), '/').'/dashboard/templates?test=1';
-        $body = '[Breviews test] '.$this->renderer->render($template->body, [
+        $body = '[B Reviews test] '.$this->renderer->render($template->body, [
             'customer_first_name' => $customer->first_name,
             'customer_last_name' => $customer->last_name,
             'business_name' => $template->business->name,

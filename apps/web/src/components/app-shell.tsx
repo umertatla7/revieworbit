@@ -166,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const supportBanner = supportBusiness ? (
     <div className="fixed inset-x-4 bottom-4 z-50 flex items-center justify-between gap-4 rounded-xl border border-mint/20 bg-ink px-5 py-4 text-xs text-white shadow-2xl lg:left-auto lg:w-[500px]">
       <div>
-        <strong className="text-mint">Admin support session</strong>
+        <strong className="text-[#ffb0b6]">Admin support session</strong>
         <span className="ml-2 text-white/55">Editing {supportBusiness}</span>
       </div>
       <button className="font-semibold underline" onClick={leaveSupportMode}>

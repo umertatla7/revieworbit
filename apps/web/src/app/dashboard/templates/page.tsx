@@ -377,7 +377,7 @@ export default function TemplatesPage() {
           <div className="rounded-xl border border-ink/10 bg-paper p-4">
             <label className="flex cursor-pointer items-start gap-3 text-sm">
               <input
-                className="mt-1 accent-[#174d3b]"
+                className="mt-1 accent-[#2d3d91]"
                 type="checkbox"
                 checked={attachMedia}
                 onChange={(event) => setAttachMedia(event.target.checked)}
@@ -486,7 +486,7 @@ export default function TemplatesPage() {
 
         <div className="space-y-6">
           <section className="rounded-[2rem] bg-forest p-7 text-white">
-            <p className="eyebrow text-mint">
+            <p className="eyebrow text-[#ffb0b6]">
               End-customer preview · {attachMedia ? "SMS with image" : "SMS"}
             </p>
             {attachMedia &&
@@ -682,7 +682,7 @@ function TestMessageDialog({
               This sends a real {channel.toUpperCase()} message.
             </strong>
             <span className="mt-1 block">
-              Breviews only allows an existing customer with recorded{" "}
+              B Reviews only allows an existing customer with recorded{" "}
               {channel.toUpperCase()} consent and no active suppression. The
               message is prefixed as a test and audited.
             </span>

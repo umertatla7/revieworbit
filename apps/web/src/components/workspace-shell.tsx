@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { Brand } from "@/components/brand";
+import { SiteFooter } from "@/components/site-footer";
 
 export type NavigationItem = {
   href: string;
@@ -84,24 +86,14 @@ export function WorkspaceShell({
     (mode === "platform" ? "Platform" : "Workspace");
 
   const sidebar = (
-    <aside className="flex h-full w-[276px] flex-col border-r border-white/8 bg-[#101916] text-white">
+    <aside className="flex h-full w-[276px] flex-col border-r border-white/8 bg-[#1d275f] text-white">
       <div className="flex h-18 items-center gap-3 border-b border-white/8 px-5">
-        <Link
-          href={mode === "platform" ? "/admin/overview" : "/dashboard"}
-          className="flex items-center gap-3"
-        >
-          <span className="grid size-9 place-items-center rounded-xl bg-mint text-xs font-black text-ink">
-            BR
+        <div>
+          <Brand href={mode === "platform" ? "/admin/overview" : "/dashboard"} compact inverse />
+          <span className="ml-[50px] -mt-1 block text-[9px] font-bold uppercase tracking-[0.16em] text-white/45">
+            {mode === "platform" ? "Platform console" : "Business workspace"}
           </span>
-          <span>
-            <strong className="block text-[15px] tracking-tight">
-              Breviews
-            </strong>
-            <span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
-              {mode === "platform" ? "Platform console" : "Business workspace"}
-            </span>
-          </span>
-        </Link>
+        </div>
       </div>
       {workspaceName && (
         <div className="mx-3 mt-4 rounded-xl border border-white/8 bg-white/5 p-3">
@@ -162,20 +154,20 @@ export function WorkspaceShell({
                         onClick={() => setMobileOpen(false)}
                         key={`${group.label}-${item.label}`}
                         href={item.href}
-                        className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition ${active ? "bg-mint text-ink shadow-[0_4px_18px_rgba(216,241,90,0.16)]" : "text-white/58 hover:bg-white/7 hover:text-white"}`}
+                        className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition ${active ? "bg-mint text-white shadow-[0_4px_18px_rgba(189,32,44,0.24)]" : "text-white/65 hover:bg-white/10 hover:text-white"}`}
                       >
                         <Icon
                           name={item.icon}
                           className={
                             active
-                              ? "text-ink"
+                              ? "text-white"
                               : "text-white/38 group-hover:text-white/75"
                           }
                         />
                         <span className="flex-1">{item.label}</span>
                         {item.badge && (
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${active ? "bg-ink/10" : "bg-white/8 text-white/40"}`}
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${active ? "bg-white/15 text-white" : "bg-white/8 text-white/40"}`}
                           >
                             {item.badge}
                           </span>
@@ -214,7 +206,7 @@ export function WorkspaceShell({
   );
 
   return (
-    <div className="min-h-screen bg-[#f3f5f2] text-ink lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
+    <div className="min-h-screen bg-background text-ink lg:grid lg:grid-cols-[276px_minmax(0,1fr)]">
       <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
         {sidebar}
       </div>
@@ -228,7 +220,7 @@ export function WorkspaceShell({
           <div className="relative h-full w-[276px]">{sidebar}</div>
         </div>
       )}
-      <div className="min-w-0 lg:col-start-2">
+      <div className="flex min-h-screen min-w-0 flex-col lg:col-start-2">
         <header className="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-ink/8 bg-white/92 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
@@ -264,7 +256,8 @@ export function WorkspaceShell({
             </span>
           </div>
         </header>
-        <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <SiteFooter />
       </div>
       {supportBanner}
     </div>

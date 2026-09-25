@@ -155,7 +155,7 @@ export default function MessagesPage() {
           {platform?.provider === "fake" && (
             <p className="rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-800">
               Local safe mode is active. Messages are recorded through the fake
-              provider and never leave Breviews.
+              provider and never leave B Reviews.
             </p>
           )}
           <label className="label">
@@ -220,7 +220,7 @@ export default function MessagesPage() {
         </form>
         <aside className="space-y-5">
           <section className="rounded-xl bg-ink p-5 text-white">
-            <p className="text-[10px] font-bold uppercase tracking-[.16em] text-mint">
+            <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ffb0b6]">
               Recommended sender model
             </p>
             <h2 className="mt-3 text-lg font-semibold">
@@ -234,7 +234,7 @@ export default function MessagesPage() {
                 • A Messaging Service chooses from its approved SMS sender pool.
               </li>
               <li>
-                • Breviews never accepts an arbitrary unverified From number.
+                • B Reviews never accepts an arbitrary unverified From number.
               </li>
             </ul>
           </section>

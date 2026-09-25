@@ -72,6 +72,7 @@ class CustomPlanQuoteCalculator
             'currency' => 'USD',
             'monthly_price_minor' => $monthlyPriceMinor,
             'annual_price_minor' => $monthlyPriceMinor * 10,
+            'annual_discount_months' => 2,
             'gross_profit_minor' => $grossProfitMinor,
             'gross_margin_percent' => $monthlyPriceMinor > 0 ? round(($grossProfitMinor / $monthlyPriceMinor) * 100, 1) : 0,
             'estimated_monthly_cost_minor' => $totalCostMinor,

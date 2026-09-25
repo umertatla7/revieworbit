@@ -10,17 +10,18 @@
 @font-face { font-family: "Allura"; src: url("/fonts/Allura-Regular.ttf") format("truetype"); font-display: swap; }
 
 :root {
-  --background: #f3f5f2;
-  --foreground: #17201b;
+  --background: #f4f5f9;
+  --foreground: #171a2b;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-ink: #17201b;
-  --color-forest: #174d3b;
-  --color-mint: #d8f15a;
-  --color-paper: #f6f7f2;
+  --color-ink: #171a2b;
+  --color-forest: #2d3d91;
+  --color-mint: #bd202c;
+  --color-lime: #e9ebf8;
+  --color-paper: #f7f7fb;
   --font-sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
 }
 
@@ -32,7 +33,7 @@ body {
 
 * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
 
-button, a, input, textarea, select { outline-color: #174d3b; }
+button, a, input, textarea, select { outline-color: #2d3d91; }
 
 @layer components {
   .field { @apply mt-2 w-full rounded-lg border border-ink/12 bg-white px-3.5 py-2.5 text-sm font-normal text-ink shadow-sm transition focus:border-forest focus:ring-2 focus:ring-forest/10; }
@@ -47,6 +48,6 @@ button, a, input, textarea, select { outline-color: #174d3b; }
 }
 
 ::selection {
-  background: #d8f15a;
-  color: #17201b;
+  background: #bd202c;
+  color: #ffffff;
 }

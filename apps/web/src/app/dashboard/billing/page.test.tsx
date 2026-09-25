@@ -66,7 +66,7 @@ describe("customer billing", () => {
     const customize = screen.getByRole("button",{name:"Customize plan"});
     expect(customize).toBeEnabled();
     await act(async()=>{ fireEvent.click(customize); });
-    expect(await screen.findByRole("dialog",{name:"Customize your Breviews plan"})).toBeInTheDocument();
+    expect(await screen.findByRole("dialog",{name:"Customize your B Reviews plan"})).toBeInTheDocument();
     fireEvent.change(await screen.findByLabelText(/^Customers each month/),{target:{value:"100"}});
     fireEvent.change(screen.getByLabelText("Business locations"),{target:{value:"1"}});
     fireEvent.change(screen.getByLabelText(/^Exact monthly messages \(optional\)/),{target:{value:"1000"}});

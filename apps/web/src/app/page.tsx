@@ -1,13 +1,12 @@
 import Link from "next/link";
+import { Brand } from "@/components/brand";
+import { SiteFooter } from "@/components/site-footer";
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-paper text-ink">
       <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-7 lg:px-10">
-        <a href="#" className="flex items-center gap-3 text-lg font-semibold tracking-tight">
-          <span className="grid size-9 place-items-center rounded-xl bg-forest text-sm font-bold text-white">BR</span>
-          Breviews
-        </a>
+        <Brand />
         <div className="flex items-center gap-3"><Link href="/login" className="text-sm font-semibold text-forest">Sign in</Link><Link href="/register" className="rounded-full bg-forest px-5 py-3 text-sm font-semibold text-white">Start free</Link></div>
       </header>
 
@@ -18,10 +17,10 @@ export default function Home() {
             Turn completed visits into honest feedback.
           </h1>
           <p className="mt-8 max-w-2xl text-lg leading-8 text-ink/65">
-            Breviews connects visits, consent, and personalized messaging in one tenant-safe workflow—without review gating or false attribution.
+            B Reviews connects visits, consent, and personalized messaging in one tenant-safe workflow—without review gating or false attribution.
           </p>
           <div className="mt-10 flex flex-wrap gap-3 text-sm font-semibold">
-            <span className="rounded-full bg-mint px-5 py-3">Consent-aware</span>
+            <span className="rounded-full bg-mint px-5 py-3 text-white">Consent-aware</span>
             <span className="rounded-full border border-ink/15 bg-white px-5 py-3">Quiet-hour safe</span>
             <span className="rounded-full border border-ink/15 bg-white px-5 py-3">Link tracking</span>
           </div>
@@ -34,7 +33,7 @@ export default function Home() {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-forest">Live example</p>
               <p className="mt-1 font-semibold">AL Barber Shop</p>
             </div>
-            <span className="size-3 rounded-full bg-mint ring-4 ring-mint/30" />
+            <span className="size-3 rounded-full bg-mint ring-4 ring-mint/20" />
           </div>
           <div className="space-y-4 p-7">
             <FlowStep number="01" title="Square payment completed" detail="Main Street Location" />
@@ -42,11 +41,12 @@ export default function Home() {
             <FlowStep number="03" title="Review request scheduled" detail="Fake provider in local development" />
             <div className="rounded-2xl bg-forest p-5 text-white">
               <p className="text-sm leading-6 text-white/80">Hi Umer, thank you for visiting AL Barber Shop. We would appreciate your honest feedback.</p>
-              <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-mint">Review link clicked</p>
+              <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-[#ffb0b6]">Review link clicked</p>
             </div>
           </div>
         </aside>
       </main>
+      <SiteFooter />
     </div>
   );
 }

@@ -228,6 +228,7 @@ class BillingController extends Controller
             'currency' => $quote['currency'],
             'monthly_price_minor' => $quote['monthly_price_minor'],
             'annual_price_minor' => $quote['annual_price_minor'],
+            'annual_discount_months' => $quote['annual_discount_months'] ?? 2,
             'usage' => $quote['usage'],
             'recommended_allowances' => $quote['recommended_allowances'],
         ];
