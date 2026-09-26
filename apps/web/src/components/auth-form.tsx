@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { API_URL, api, selectBusiness, type SessionUser } from "@/lib/api";
 import {
@@ -99,7 +99,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const password = useWatch({ control, name: "password" }) ?? "";
   const passwordConfirmation =
     useWatch({ control, name: "password_confirmation" }) ?? "";
-  const businessPhoneField = register("business_phone");
 
   useEffect(() => {
     if (mode === "register")
@@ -385,17 +384,21 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               label="Business phone"
               error={errors.business_phone?.message}
             >
-              <input
-                className="field"
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel-national"
-                placeholder="(713) 893-1144"
-                {...businessPhoneField}
-                onChange={(event) => {
-                  event.target.value = formatUsPhone(event.target.value);
-                  void businessPhoneField.onChange(event);
-                }}
+              <Controller
+                control={control}
+                name="business_phone"
+                render={({ field }) => (
+                  <input
+                    className="field"
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    placeholder="(713) 893-1144"
+                    {...field}
+                    value={field.value ?? ""}
+                    onChange={(event) => field.onChange(formatUsPhone(event.target.value))}
+                  />
+                )}
               />
             </Field>
             <Field
