@@ -11,8 +11,8 @@ import {
   type EmbeddedStripeSession,
 } from "@/components/stripe-embedded-checkout";
 import { PasswordInput } from "@/components/password-input";
-import { Brand } from "@/components/brand";
-import { SiteFooter } from "@/components/site-footer";
+import { MarketingFooter } from "@/components/marketing-footer";
+import { MarketingHeader } from "@/components/marketing-header";
 import { formatUsPhone, isUsPhone, toUsE164 } from "@/lib/us-phone";
 import {
   citiesFor,
@@ -640,13 +640,11 @@ function AuthShell({
 }) {
   return (
     <main className="flex min-h-screen flex-col">
+      <MarketingHeader />
       <div className="grid flex-1 place-items-center px-6 py-12">
         <div
           className={`w-full rounded-[2rem] border border-ink/10 bg-white p-8 shadow-[0_30px_80px_rgba(45,61,145,0.12)] ${wide ? "max-w-5xl" : "max-w-md"}`}
         >
-          <div className="mb-8">
-            <Brand />
-          </div>
           <p className="eyebrow">{eyebrow}</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">
             {title}
@@ -654,7 +652,7 @@ function AuthShell({
           {children}
         </div>
       </div>
-      <SiteFooter />
+      <MarketingFooter />
     </main>
   );
 }

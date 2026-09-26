@@ -17,6 +17,10 @@ describe("registration", () => {
   it("keeps the user on business details until required fields are valid", async () => {
     render(<RegisterPage />);
 
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "https://breview.buckeyerank.com/#pricing");
+    expect(screen.getByText('"Make Original Reviews Easy"')).toBeInTheDocument();
+    expect(screen.getByText(/Developed by/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
     fireEvent.click(screen.getByRole("button", { name: "Continue to plans" }));
 
