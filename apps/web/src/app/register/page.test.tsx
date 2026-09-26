@@ -29,7 +29,7 @@ describe("registration", () => {
   it("formats US phone numbers and shows live password requirements", () => {
     render(<RegisterPage />);
 
-    fireEvent.change(screen.getByLabelText("Business phone"), {
+    fireEvent.input(screen.getByLabelText("Business phone"), {
       target: { value: "7138931144" },
     });
     fireEvent.change(screen.getByLabelText("Password"), {

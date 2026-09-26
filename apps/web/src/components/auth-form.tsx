@@ -99,7 +99,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const password = useWatch({ control, name: "password" }) ?? "";
   const passwordConfirmation =
     useWatch({ control, name: "password_confirmation" }) ?? "";
-  const businessPhone = useWatch({ control, name: "business_phone" }) ?? "";
   const businessPhoneField = register("business_phone");
 
   useEffect(() => {
@@ -393,10 +392,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 autoComplete="tel-national"
                 placeholder="(713) 893-1144"
                 {...businessPhoneField}
-                value={businessPhone}
-                onChange={(event) => {
-                  event.target.value = formatUsPhone(event.target.value);
-                  void businessPhoneField.onChange(event);
+                onInput={(event) => {
+                  event.currentTarget.value = formatUsPhone(event.currentTarget.value);
                 }}
               />
             </Field>
