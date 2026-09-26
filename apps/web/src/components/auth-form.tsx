@@ -392,8 +392,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 autoComplete="tel-national"
                 placeholder="(713) 893-1144"
                 {...businessPhoneField}
-                onInput={(event) => {
-                  event.currentTarget.value = formatUsPhone(event.currentTarget.value);
+                onChange={(event) => {
+                  event.target.value = formatUsPhone(event.target.value);
+                  void businessPhoneField.onChange(event);
                 }}
               />
             </Field>
