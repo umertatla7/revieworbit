@@ -59,6 +59,7 @@ Route::prefix('api/v1')->group(function (): void {
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::get('/plans', [BillingController::class, 'plans'])->middleware('throttle:60,1');
+    Route::post('/plans/custom-quote', [BillingController::class, 'publicCustomQuote'])->middleware('throttle:20,1');
     Route::post('/integrations/generic/events', [GenericEventController::class, 'ingest'])->middleware(['integration.key', 'throttle:120,1']);
     Route::post('/webhooks/generic', [GenericEventController::class, 'webhook'])->middleware('throttle:120,1');
     Route::post('/webhooks/twilio/status', [TwilioWebhookController::class, 'status'])->middleware('throttle:600,1');

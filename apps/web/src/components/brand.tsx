@@ -12,12 +12,16 @@ export function Brand({
 }) {
   if (!compact) {
     return (
-      <Link href={href} aria-label="B Reviews home" className="inline-flex items-center">
+      <Link
+        href={href}
+        aria-label="B Reviews home"
+        className="inline-flex items-center"
+      >
         <Image
-          src="/b-review-logo.png"
+          src="/b-review-logo.webp"
           alt="B Reviews by BuckeyeRank"
-          width={1094}
-          height={384}
+          width={692}
+          height={198}
           priority
           className="h-auto w-[210px] sm:w-[230px]"
         />
@@ -26,11 +30,27 @@ export function Brand({
   }
 
   return (
-    <Link href={href} aria-label="B Reviews home" className="flex items-center gap-2.5">
-      <span className={`grid size-10 place-items-center overflow-hidden rounded-xl ${inverse ? "bg-white" : "bg-white"}`}>
-        <Image src="/b-review-icon.png" alt="" width={190} height={244} className="h-9 w-auto object-contain" />
+    <Link
+      href={href}
+      aria-label="B Reviews home"
+      className="flex items-center gap-2.5"
+    >
+      <span
+        className={`grid size-10 place-items-center overflow-hidden rounded-xl ${inverse ? "bg-white" : "bg-white"}`}
+      >
+        <Image
+          src="/favicon.webp"
+          alt=""
+          width={223}
+          height={223}
+          className="h-9 w-auto object-contain"
+        />
       </span>
-      <strong className={`text-[15px] tracking-tight ${inverse ? "text-white" : "text-ink"}`}>B Reviews</strong>
+      <strong
+        className={`text-[15px] tracking-tight ${inverse ? "text-white" : "text-ink"}`}
+      >
+        B Reviews
+      </strong>
     </Link>
   );
 }

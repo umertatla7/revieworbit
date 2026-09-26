@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { UsPhoneInput } from "@/components/us-phone-input";
 
 type Provider = "google" | "trustpilot" | "facebook" | "yelp" | "other";
 type Destination = {
@@ -351,14 +352,8 @@ function LocationDialog({
                   defaultValue={current?.name}
                 />
               </Field>
-              <Field label="Phone" hint="International E.164 format">
-                <input
-                  className="field"
-                  name="phone"
-                  type="tel"
-                  pattern="\+[1-9][0-9]{7,14}"
-                  defaultValue={current?.phone}
-                />
+              <Field label="Phone" hint="US format, for example (713) 893-1144">
+                <UsPhoneInput name="phone" defaultValue={current?.phone}/>
               </Field>
               <Field label="Time zone" required>
                 <select

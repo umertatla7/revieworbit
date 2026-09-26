@@ -29,6 +29,26 @@ class BillingController extends Controller
             ])]);
     }
 
+    public function publicCustomQuote(Request $request, CustomPlanQuoteCalculator $calculator): JsonResponse
+    {
+        $data = $request->validate([
+            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
+            'monthly_messages' => ['required', 'integer', 'min:1', 'max:1000000'],
+        ]);
+        $messages = (int) $data['monthly_messages'];
+        $quote = $calculator->calculate([
+            'monthly_customers' => max(1, (int) ceil($messages / 2)),
+            'locations' => (int) $data['locations'],
+            'messages_per_customer' => 2,
+            'monthly_messages' => $messages,
+            'sms_segments_per_message' => 1,
+            'mms_percent' => 0,
+            'support_level' => 'standard',
+        ]);
+
+        return response()->json(['data' => $this->customerQuotePayload($quote)]);
+    }
+
     public function show(Request $request, StripeGateway $stripe): JsonResponse
     {
         $business = $request->attributes->get('business');

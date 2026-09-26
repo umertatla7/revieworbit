@@ -228,6 +228,19 @@ class BillingTest extends TestCase
         ]);
     }
 
+    public function test_signup_can_preview_a_custom_plan_without_exposing_internal_costs(): void
+    {
+        $this->postJson('/api/v1/plans/custom-quote', [
+            'locations' => 3,
+            'monthly_messages' => 1200,
+        ])->assertOk()
+            ->assertJsonPath('data.usage.locations', 3)
+            ->assertJsonPath('data.usage.messages', 1200)
+            ->assertJsonPath('data.usage.monthly_customers', 600)
+            ->assertJsonMissingPath('data.gross_margin_percent')
+            ->assertJsonMissingPath('data.breakdown');
+    }
+
     public function test_super_admin_can_calculate_and_assign_a_private_custom_plan_without_a_trial(): void
     {
         [, $business] = $this->owner('Admin custom package');

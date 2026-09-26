@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { UsPhoneInput } from "@/components/us-phone-input";
 
 type Consent = { channel: string; status: string; recorded_at?: string };
 type Suppression = { channel: string; released_at?: string };
@@ -681,19 +682,8 @@ function AddCustomerDialog({
           <Field label="Last name">
             <input className="field" name="last_name" />
           </Field>
-          <Field
-            label="Mobile phone"
-            required
-            hint="International format, for example +12025550123"
-          >
-            <input
-              className="field"
-              name="phone"
-              type="tel"
-              required
-              pattern="\+[1-9][0-9]{7,14}"
-              placeholder="+12025550123"
-            />
+          <Field label="Mobile phone" required hint="US format, for example (713) 893-1144">
+            <UsPhoneInput name="phone" required />
           </Field>
           <Field label="Email">
             <input className="field" name="email" type="email" />

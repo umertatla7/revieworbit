@@ -5,8 +5,14 @@ export const metadata: Metadata = {
   title: "B Reviews",
   description: "Consent-aware automated review requests for local businesses.",
   icons: {
-    icon: "/b-review-icon.png",
-    apple: "/b-review-icon.png",
+    icon: "/favicon.webp",
+    apple: "/favicon.webp",
+  },
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false, noimageindex: true },
   },
 };
 
