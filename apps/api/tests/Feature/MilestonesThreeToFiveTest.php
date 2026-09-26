@@ -8,8 +8,10 @@ use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
 use App\Models\User;
+use App\Notifications\RegistrationSubmitted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class MilestonesThreeToFiveTest extends TestCase
@@ -33,6 +35,7 @@ class MilestonesThreeToFiveTest extends TestCase
 
     public function test_registration_creates_an_authenticated_owner_and_business(): void
     {
+        Notification::fake();
         $response = $this->withHeader('Origin', 'https://revieworbit.test')->postJson('/api/v1/auth/register', [
             'name' => 'Umer Tatla',
             'email' => 'umer@example.com',
@@ -47,13 +50,13 @@ class MilestonesThreeToFiveTest extends TestCase
             'region' => 'NY',
             'postal_code' => '10001',
             'country' => 'US',
-            'timezone' => 'America/New_York',
         ]);
 
         $response->assertCreated()->assertJsonPath('data.businesses.0.role', 'owner');
         $this->assertAuthenticated();
         $this->assertDatabaseHas('businesses', ['name' => 'AL Barber Shop']);
         $this->assertDatabaseHas('audit_logs', ['action' => 'business.created']);
+        Notification::assertSentOnDemand(RegistrationSubmitted::class);
     }
 
     public function test_a_user_cannot_read_or_mutate_another_business_customer(): void

@@ -14,6 +14,12 @@ import { PasswordInput } from "@/components/password-input";
 import { Brand } from "@/components/brand";
 import { SiteFooter } from "@/components/site-footer";
 import { formatUsPhone, isUsPhone, toUsE164 } from "@/lib/us-phone";
+import {
+  citiesFor,
+  countries,
+  regions,
+  type CountryCode,
+} from "@/lib/north-america-locations";
 
 type SignupPlan = {
   id: string;
@@ -49,18 +55,12 @@ const registerSchema = loginSchema.extend({
     .string()
     .refine(isUsPhone, "Enter a 10-digit US phone number."),
   website_url: z.union([z.url(), z.literal("")]).optional(),
-  country: z.string().length(2),
-  timezone: z.string().min(1),
+  country: z.enum(["US", "CA"]),
+  region: z.string().length(2, "Select a state or province."),
+  city: z.string().min(1, "Select or enter a city."),
   plan_id: z.string().min(1),
 });
 type Fields = z.infer<typeof registerSchema>;
-type SignupCustomQuote = {
-  currency: string;
-  monthly_price_minor: number;
-  annual_price_minor: number;
-  annual_discount_months: number;
-  usage: { monthly_customers: number; messages: number; locations: number };
-};
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -75,10 +75,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customLocations, setCustomLocations] = useState(2);
   const [customMessages, setCustomMessages] = useState(1000);
-  const [customQuote, setCustomQuote] = useState<SignupCustomQuote | null>(
-    null,
-  );
   const [customBusy, setCustomBusy] = useState(false);
+  const [customStatus, setCustomStatus] = useState("");
   const {
     register,
     handleSubmit,
@@ -90,8 +88,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     control,
   } = useForm<Fields>({
     defaultValues: {
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       country: "US",
+      region: "",
+      city: "",
       plan_id: "",
     },
   });
@@ -99,6 +98,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const password = useWatch({ control, name: "password" }) ?? "";
   const passwordConfirmation =
     useWatch({ control, name: "password_confirmation" }) ?? "";
+  const selectedCountry = (useWatch({ control, name: "country" }) ??
+    "US") as CountryCode;
+  const selectedRegion = useWatch({ control, name: "region" }) ?? "";
 
   useEffect(() => {
     if (mode === "register")
@@ -122,34 +124,30 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       })
       .catch(() => undefined);
   }, [mode, router]);
-  useEffect(() => {
-    if (!customOpen || customLocations < 1 || customMessages < 1) return;
-    const timer = window.setTimeout(async () => {
-      setCustomBusy(true);
-      try {
-        const result = await api<{ data: SignupCustomQuote }>(
-          "/api/v1/plans/custom-quote",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              locations: customLocations,
-              monthly_messages: customMessages,
-            }),
-          },
-        );
-        setCustomQuote(result.data);
-      } catch (error) {
-        setServerError(
-          error instanceof Error
-            ? error.message
-            : "Unable to calculate the custom plan.",
-        );
-      } finally {
-        setCustomBusy(false);
-      }
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [customOpen, customLocations, customMessages]);
+  async function requestCustomPlan() {
+    const values = getValues();
+    setCustomBusy(true);
+    setCustomStatus("");
+    try {
+      const result = await api<{ message: string }>("/api/v1/plans/custom-request", {
+        method: "POST",
+        body: JSON.stringify({
+          locations: customLocations,
+          monthly_messages: customMessages,
+          contact_name: values.name,
+          contact_email: values.email,
+          business_name: values.business_name,
+        }),
+      });
+      setCustomStatus(result.message);
+    } catch (error) {
+      setCustomStatus(
+        error instanceof Error ? error.message : "Unable to send your requirements.",
+      );
+    } finally {
+      setCustomBusy(false);
+    }
+  }
 
   async function next() {
     clearErrors();
@@ -413,12 +411,52 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               />
             </Field>
             <Field label="Country" error={errors.country?.message}>
-              <select className="field" {...register("country")}>
-                <option value="US">United States</option>
+              <select
+                className="field"
+                {...register("country")}
+                onChange={(event) => {
+                  setValue("country", event.target.value as CountryCode);
+                  setValue("region", "");
+                  setValue("city", "");
+                }}
+              >
+                {countries.map((country) => (
+                  <option key={country.value} value={country.value}>
+                    {country.label}
+                  </option>
+                ))}
               </select>
             </Field>
-            <Field label="Time zone" error={errors.timezone?.message}>
-              <input className="field" {...register("timezone")} />
+            <Field label="State / province" error={errors.region?.message}>
+              <select
+                className="field"
+                {...register("region")}
+                onChange={(event) => {
+                  setValue("region", event.target.value);
+                  setValue("city", "");
+                }}
+              >
+                <option value="">Select state or province</option>
+                {regions[selectedCountry].map((region) => (
+                  <option key={region.value} value={region.value}>
+                    {region.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="City" error={errors.city?.message}>
+              <input
+                className="field"
+                list="registration-city-options"
+                autoComplete="address-level2"
+                placeholder={selectedRegion ? "Select or enter city" : "Select state first"}
+                {...register("city")}
+              />
+              <datalist id="registration-city-options">
+                {citiesFor(selectedCountry, selectedRegion).map((city) => (
+                  <option value={city} key={city} />
+                ))}
+              </datalist>
             </Field>
           </div>
           {serverError && <ErrorNotice text={serverError} />}
@@ -515,7 +553,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 </h2>
                 <p className="mt-1 text-sm text-ink/55">
                   Tell us how many locations and monthly SMS messages you need
-                  to receive an immediate planning estimate.
+                  and our team will prepare the right package for you.
                 </p>
               </div>
               <button
@@ -552,7 +590,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           <p className="mb-5 rounded-xl bg-paper px-4 py-3 text-sm text-ink/60">
             Complete Stripe&apos;s secure payment form to create your
             subscription and activate the 7-day trial. Your card number is never
-            stored by B Reviews.
+            stored by B Review.
           </p>
           <StripeEmbeddedCheckout
             session={checkout}
@@ -574,11 +612,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <SignupCustomPlanDialog
           locations={customLocations}
           messages={customMessages}
-          quote={customQuote}
           busy={customBusy}
+          status={customStatus}
           setLocations={setCustomLocations}
           setMessages={setCustomMessages}
-          close={() => setCustomOpen(false)}
+          submit={() => void requestCustomPlan()}
+          close={() => {
+            setCustomOpen(false);
+            setCustomStatus("");
+          }}
         />
       )}
     </AuthShell>
@@ -663,7 +705,7 @@ function SwitchLink({ mode }: { mode: "login" | "register" }) {
   return (
     <div className="mt-6 border-t border-ink/8 pt-5 text-center">
       <p className="text-sm text-ink/60">
-        {mode === "login" ? "New to B Reviews?" : "Already have an account?"}
+        {mode === "login" ? "New to B Review?" : "Already have an account?"}
       </p>
       <Link
         className="mt-3 inline-flex min-w-44 justify-center rounded-xl border border-forest px-4 py-2.5 text-sm font-semibold text-forest transition hover:bg-forest hover:text-white"
@@ -722,30 +764,28 @@ function PasswordRules({
 function SignupCustomPlanDialog({
   locations,
   messages,
-  quote,
   busy,
+  status,
   setLocations,
   setMessages,
+  submit,
   close,
 }: {
   locations: number;
   messages: number;
-  quote: SignupCustomQuote | null;
   busy: boolean;
+  status: string;
   setLocations: (value: number) => void;
   setMessages: (value: number) => void;
+  submit: () => void;
   close: () => void;
 }) {
-  const subject = encodeURIComponent("B Reviews custom plan request");
-  const body = encodeURIComponent(
-    `I would like a custom B Reviews plan.\n\nLocations: ${locations}\nMonthly SMS messages: ${messages}\nEstimated monthly price: ${quote ? money(quote.monthly_price_minor, quote.currency) : "Calculating"}`,
-  );
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-ink/60 p-4 sm:p-8"
       role="dialog"
       aria-modal="true"
-      aria-label="Customize your B Reviews plan"
+      aria-label="Customize your B Review plan"
     >
       <div className="mx-auto max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
         <header className="flex items-start justify-between gap-4">
@@ -755,8 +795,8 @@ function SignupCustomPlanDialog({
               Tell us what you need
             </h2>
             <p className="mt-2 text-sm leading-6 text-ink/50">
-              Adjust your locations and estimated monthly SMS volume. The
-              planning estimate updates automatically.
+              Share your expected locations and monthly SMS volume. Our team
+              will review the requirements and contact you with a tailored plan.
             </p>
           </div>
           <button
@@ -796,49 +836,23 @@ function SignupCustomPlanDialog({
             />
           </label>
         </div>
-        <div className="mt-6 rounded-2xl bg-forest p-5 text-white">
-          <p className="text-xs font-bold uppercase tracking-[.18em] text-[#ffb0b6]">
-            Estimated package
-          </p>
-          {quote ? (
-            <>
-              <p className="mt-2 text-4xl font-semibold">
-                {money(quote.monthly_price_minor, quote.currency)}
-                <span className="text-sm font-normal text-white/55">
-                  {" "}
-                  / month
-                </span>
-              </p>
-              <p className="mt-2 text-sm text-white/60">
-                {quote.usage.locations} location
-                {quote.usage.locations === 1 ? "" : "s"} ·{" "}
-                {quote.usage.messages.toLocaleString()} monthly SMS ·{" "}
-                {quote.usage.monthly_customers.toLocaleString()} estimated
-                customers
-              </p>
-              <p className="mt-1 text-xs text-white/50">
-                Annual option: {money(quote.annual_price_minor, quote.currency)}{" "}
-                ({quote.annual_discount_months} months free)
-              </p>
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-white/60">
-              {busy
-                ? "Updating your estimate…"
-                : "Enter your requirements to calculate an estimate."}
-            </p>
-          )}
-        </div>
         <p className="mt-4 text-xs leading-5 text-ink/45">
-          This is a planning estimate. Our team confirms integrations, carrier
-          registration, and final allowances before activation.
+          No price is calculated or shown here. A B Review specialist will
+          confirm the package, integrations, and carrier requirements with you.
         </p>
-        <a
-          href={`mailto:hello@buckeyerank.com?subject=${subject}&body=${body}`}
-          className={`mt-5 block rounded-xl bg-forest px-5 py-3 text-center text-sm font-semibold text-white ${!quote ? "pointer-events-none opacity-40" : ""}`}
+        {status && (
+          <p role="status" className="mt-4 rounded-xl bg-paper px-4 py-3 text-sm text-forest">
+            {status}
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={busy || locations < 1 || messages < 1}
+          onClick={submit}
+          className="mt-5 w-full rounded-xl bg-forest px-5 py-3 text-center text-sm font-semibold text-white disabled:opacity-40"
         >
-          Send custom plan request
-        </a>
+          {busy ? "Sending requirements…" : "Send requirements"}
+        </button>
       </div>
     </div>
   );

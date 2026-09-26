@@ -11,6 +11,7 @@ use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\PlatformUserRole;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Notifications\RegistrationSubmitted;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class PlatformAndOnboardingTest extends TestCase
 
     public function test_customer_signup_returns_customer_workspace_context_and_onboarding_progress(): void
     {
+        Notification::fake();
         $response = $this->withHeader('Origin', 'https://revieworbit.test')->postJson('/api/v1/auth/register', [
             'name' => 'Ava Owner',
             'email' => 'ava@example.com',
@@ -47,7 +49,6 @@ class PlatformAndOnboardingTest extends TestCase
             'region' => 'IL',
             'postal_code' => '60601',
             'country' => 'US',
-            'timezone' => 'America/Chicago',
         ]);
 
         $response->assertCreated()
@@ -59,25 +60,47 @@ class PlatformAndOnboardingTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.business.onboarding_status', 'in_progress')
             ->assertJsonPath('data.checks.integration', true);
-        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'industry' => 'beauty_wellness', 'phone' => '+13125550123']);
+        $this->assertDatabaseHas('businesses', ['id' => $businessId, 'industry' => 'beauty_wellness', 'phone' => '+13125550123', 'default_timezone' => 'America/Chicago']);
         $this->assertDatabaseHas('locations', ['business_id' => $businessId, 'name' => 'Main Studio']);
+        Notification::assertSentOnDemand(RegistrationSubmitted::class);
     }
 
     public function test_customer_signup_assigns_the_selected_plan_and_keeps_location_setup_short(): void
     {
+        Notification::fake();
         $plan = SubscriptionPlan::where('code', 'momentum')->firstOrFail();
         $response = $this->withHeader('Origin', 'https://revieworbit.test')->postJson('/api/v1/auth/register', [
             'name' => 'Jamie Owner', 'email' => 'jamie@example.com',
             'password' => 'ReviewOrbit123!', 'password_confirmation' => 'ReviewOrbit123!',
             'business_name' => 'Jamie Studio', 'industry' => 'beauty_wellness',
             'business_phone' => '+13125550199', 'country' => 'US',
-            'timezone' => 'America/Chicago', 'plan_id' => $plan->id,
+            'city' => 'Chicago', 'region' => 'IL', 'plan_id' => $plan->id,
         ])->assertCreated();
 
         $businessId = $response->json('data.businesses.0.id');
         $this->assertDatabaseHas('businesses', ['id' => $businessId, 'plan_code' => 'momentum']);
         $this->assertDatabaseHas('business_subscriptions', ['business_id' => $businessId, 'subscription_plan_id' => $plan->id]);
         $this->assertDatabaseHas('locations', ['business_id' => $businessId, 'name' => 'Main location']);
+    }
+
+    public function test_super_admin_can_configure_the_registration_notification_email(): void
+    {
+        $admin = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $admin->id, 'role' => PlatformRole::SuperAdmin]);
+
+        $this->actingAs($admin)->getJson('/api/v1/admin/notifications')
+            ->assertOk()
+            ->assertJsonPath('data.registration_email', 'zee@buckeyerank.com');
+
+        $this->putJson('/api/v1/admin/notifications', [
+            'registration_email' => 'registrations@buckeyerank.com',
+        ])->assertOk()
+            ->assertJsonPath('data.registration_email', 'registrations@buckeyerank.com');
+
+        $this->assertDatabaseHas('platform_notification_settings', [
+            'registration_email' => 'registrations@buckeyerank.com',
+        ]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'platform.notifications.updated']);
     }
 
     public function test_business_owner_cannot_access_platform_customer_directory(): void

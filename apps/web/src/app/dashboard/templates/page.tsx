@@ -682,7 +682,7 @@ function TestMessageDialog({
               This sends a real {channel.toUpperCase()} message.
             </strong>
             <span className="mt-1 block">
-              B Reviews only allows an existing customer with recorded{" "}
+              B Review only allows an existing customer with recorded{" "}
               {channel.toUpperCase()} consent and no active suppression. The
               message is prefixed as a test and audited.
             </span>

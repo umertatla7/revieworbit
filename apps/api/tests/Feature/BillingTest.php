@@ -15,9 +15,11 @@ use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\PlatformUserRole;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Notifications\CustomPlanRequested;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as StripeRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -177,68 +179,40 @@ class BillingTest extends TestCase
             && data_get($request->data(), 'subscription_data.trial_period_days') === null);
     }
 
-    public function test_owner_can_quote_and_create_a_private_custom_plan_for_only_their_business(): void
+    public function test_owner_can_submit_custom_plan_requirements_without_receiving_a_price(): void
     {
         [$owner, $business] = $this->owner('Custom package');
-        PlatformStripeSetting::create(['publishable_key' => 'pk_test_x', 'secret_key' => 'sk_test_x', 'webhook_secret' => 'whsec_x', 'mode' => 'test', 'status' => 'verified']);
+        Notification::fake();
         $payload = [
-            'monthly_customers' => 100,
-            'locations' => 1,
-            'messages_per_customer' => 2,
+            'locations' => 3,
             'monthly_messages' => 1000,
-            'sms_segments_per_message' => 1,
-            'mms_percent' => 0,
-            'support_level' => 'standard',
         ];
 
-        $this->actingAs($owner)->postJson('/api/v1/billing/custom-quote', $payload, ['X-Business-ID' => $business->id])
-            ->assertOk()
-            ->assertJsonPath('data.monthly_price_minor', 6000)
-            ->assertJsonMissingPath('data.gross_margin_percent')
-            ->assertJsonMissingPath('data.breakdown');
+        $this->actingAs($owner)->postJson('/api/v1/billing/custom-request', $payload, ['X-Business-ID' => $business->id])
+            ->assertStatus(202)
+            ->assertJsonMissingPath('data.monthly_price_minor');
 
-        $price = 0;
-        Http::fake(function (StripeRequest $request) use (&$price) {
-            if (str_ends_with($request->url(), '/v1/products')) {
-                return Http::response(['id' => 'prod_custom']);
-            }
-            if (str_ends_with($request->url(), '/v1/prices')) {
-                $price++;
-
-                return Http::response(['id' => $price === 1 ? 'price_custom_month' : 'price_custom_year']);
-            }
-            if (str_ends_with($request->url(), '/v1/billing_portal/configurations')) {
-                return Http::response(['id' => 'bpc_custom']);
-            }
-
-            return Http::response(['error' => ['message' => 'Unexpected request']], 400);
-        });
-
-        $this->actingAs($owner)->postJson('/api/v1/billing/custom-plan', $payload, ['X-Business-ID' => $business->id])
-            ->assertOk()
-            ->assertJsonPath('data.monthly_price_minor', 6000)
-            ->assertJsonPath('data.is_public', false)
-            ->assertJsonMissingPath('data.business_id');
-
-        $this->assertDatabaseHas('subscription_plans', [
+        Notification::assertSentOnDemand(CustomPlanRequested::class);
+        $this->assertDatabaseHas('audit_logs', [
             'business_id' => $business->id,
-            'code' => 'custom-'.$business->id,
-            'monthly_price_minor' => 6000,
-            'stripe_monthly_price_id' => 'price_custom_month',
+            'action' => 'billing.custom_plan.requested',
         ]);
     }
 
-    public function test_signup_can_preview_a_custom_plan_without_exposing_internal_costs(): void
+    public function test_signup_can_submit_custom_plan_requirements_without_receiving_a_price(): void
     {
-        $this->postJson('/api/v1/plans/custom-quote', [
+        Notification::fake();
+
+        $this->postJson('/api/v1/plans/custom-request', [
             'locations' => 3,
             'monthly_messages' => 1200,
-        ])->assertOk()
-            ->assertJsonPath('data.usage.locations', 3)
-            ->assertJsonPath('data.usage.messages', 1200)
-            ->assertJsonPath('data.usage.monthly_customers', 600)
-            ->assertJsonMissingPath('data.gross_margin_percent')
-            ->assertJsonMissingPath('data.breakdown');
+            'contact_name' => 'Ava Owner',
+            'contact_email' => 'ava@example.com',
+            'business_name' => 'Ava Studio',
+        ])->assertStatus(202)
+            ->assertJsonMissingPath('data.monthly_price_minor');
+
+        Notification::assertSentOnDemand(CustomPlanRequested::class);
     }
 
     public function test_super_admin_can_calculate_and_assign_a_private_custom_plan_without_a_trial(): void

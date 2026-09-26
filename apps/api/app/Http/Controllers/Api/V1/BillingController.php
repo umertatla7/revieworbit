@@ -6,17 +6,20 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Billing\Models\BillingInvoice;
 use App\Domain\Billing\Models\BusinessSubscription;
 use App\Domain\Billing\Models\PlatformStripeSetting;
-use App\Domain\Billing\Services\CustomPlanManager;
-use App\Domain\Billing\Services\CustomPlanQuoteCalculator;
 use App\Domain\Billing\Services\StripeGateway;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
+use App\Domain\Tenancy\Services\NotificationRecipient;
 use App\Http\Controllers\Controller;
+use App\Notifications\CustomPlanRequested;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\Rule;
 
 class BillingController extends Controller
 {
+    public function __construct(private readonly NotificationRecipient $notificationRecipient) {}
+
     public function plans(): JsonResponse
     {
         return response()->json(['data' => SubscriptionPlan::where('status', 'active')->where('is_public', true)
@@ -29,24 +32,18 @@ class BillingController extends Controller
             ])]);
     }
 
-    public function publicCustomQuote(Request $request, CustomPlanQuoteCalculator $calculator): JsonResponse
+    public function publicCustomRequest(Request $request): JsonResponse
     {
         $data = $request->validate([
             'locations' => ['required', 'integer', 'min:1', 'max:1000'],
             'monthly_messages' => ['required', 'integer', 'min:1', 'max:1000000'],
+            'contact_name' => ['required', 'string', 'max:120'],
+            'contact_email' => ['required', 'email', 'max:255'],
+            'business_name' => ['required', 'string', 'max:160'],
         ]);
-        $messages = (int) $data['monthly_messages'];
-        $quote = $calculator->calculate([
-            'monthly_customers' => max(1, (int) ceil($messages / 2)),
-            'locations' => (int) $data['locations'],
-            'messages_per_customer' => 2,
-            'monthly_messages' => $messages,
-            'sms_segments_per_message' => 1,
-            'mms_percent' => 0,
-            'support_level' => 'standard',
-        ]);
+        $this->sendCustomPlanRequest($data);
 
-        return response()->json(['data' => $this->customerQuotePayload($quote)]);
+        return response()->json(['message' => 'Your custom plan requirements were sent to our team.'], 202);
     }
 
     public function show(Request $request, StripeGateway $stripe): JsonResponse
@@ -174,36 +171,24 @@ class BillingController extends Controller
         return response()->json(['data' => $session]);
     }
 
-    public function customQuote(Request $request, CustomPlanQuoteCalculator $calculator): JsonResponse
+    public function customRequest(Request $request, Auditor $auditor): JsonResponse
     {
         $this->ensureBillingManager($request);
-        $quote = $calculator->calculate($this->customQuoteData($request));
-
-        return response()->json(['data' => $this->customerQuotePayload($quote)]);
-    }
-
-    public function customPlan(Request $request, CustomPlanQuoteCalculator $calculator, CustomPlanManager $manager, Auditor $auditor): JsonResponse
-    {
-        $this->ensureBillingManager($request);
-        $business = $request->attributes->get('business');
-        $quote = $calculator->calculate($this->customQuoteData($request));
-        $trialDays = BusinessSubscription::where('business_id', $business->id)
-            ->where(fn ($query) => $query->whereNotNull('trial_used_at')->orWhereNotNull('trial_started_at')->orWhereNotNull('stripe_subscription_id'))
-            ->exists() ? 0 : 7;
-        $plan = $manager->configure($business, $quote, $trialDays);
-        $auditor->record($request, 'billing.custom_plan.configured', $business, [
-            'plan_id' => $plan->id,
-            'monthly_customers' => $quote['usage']['monthly_customers'],
-            'messages' => $quote['usage']['messages'],
-            'locations' => $quote['usage']['locations'],
-            'monthly_price_minor' => $quote['monthly_price_minor'],
+        $data = $request->validate([
+            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
+            'monthly_messages' => ['required', 'integer', 'min:1', 'max:1000000'],
         ]);
+        $business = $request->attributes->get('business');
+        $details = [
+            ...$data,
+            'contact_name' => $request->user()->name,
+            'contact_email' => $request->user()->email,
+            'business_name' => $business->name,
+        ];
+        $this->sendCustomPlanRequest($details);
+        $auditor->record($request, 'billing.custom_plan.requested', $business, $data);
 
-        return response()->json(['data' => $plan->makeHidden([
-            'business_id', 'stripe_product_id', 'overage_price_minor', 'included_message_credits',
-            'sms_credit_units', 'mms_credit_units', 'whatsapp_credit_units', 'estimated_sms_provider_cost_minor',
-            'estimated_mms_provider_cost_minor', 'estimated_whatsapp_provider_cost_minor', 'allow_overage',
-        ])]);
+        return response()->json(['message' => 'Your custom plan requirements were sent to our team.'], 202);
     }
 
     public function portal(Request $request, StripeGateway $stripe, Auditor $auditor): JsonResponse
@@ -227,30 +212,16 @@ class BillingController extends Controller
         abort_unless(($request->attributes->get('membership')?->role?->value ?? $request->attributes->get('membership')?->role) === 'owner', 403, 'Only the business owner can manage billing.');
     }
 
-    /** @return array{monthly_customers:int,locations:int,messages_per_customer:int,monthly_messages:?int,sms_segments_per_message:int,mms_percent:int,support_level:string} */
-    private function customQuoteData(Request $request): array
+    /** @param array{contact_name:string,contact_email:string,business_name:string,locations:int,monthly_messages:int} $details */
+    private function sendCustomPlanRequest(array $details): void
     {
-        return $request->validate([
-            'monthly_customers' => ['required', 'integer', 'min:1', 'max:100000'],
-            'locations' => ['required', 'integer', 'min:1', 'max:1000'],
-            'messages_per_customer' => ['required', 'integer', 'min:1', 'max:10'],
-            'monthly_messages' => ['nullable', 'integer', 'min:1', 'max:1000000'],
-            'sms_segments_per_message' => ['required', 'integer', 'min:1', 'max:10'],
-            'mms_percent' => ['required', 'integer', 'min:0', 'max:100'],
-            'support_level' => ['required', Rule::in(['standard', 'priority', 'dedicated'])],
-        ]);
-    }
-
-    /** @param array<string, mixed> $quote */
-    private function customerQuotePayload(array $quote): array
-    {
-        return [
-            'currency' => $quote['currency'],
-            'monthly_price_minor' => $quote['monthly_price_minor'],
-            'annual_price_minor' => $quote['annual_price_minor'],
-            'annual_discount_months' => $quote['annual_discount_months'] ?? 2,
-            'usage' => $quote['usage'],
-            'recommended_allowances' => $quote['recommended_allowances'],
-        ];
+        $notificationEmail = $this->notificationRecipient->registrationEmail();
+        if (filter_var($notificationEmail, FILTER_VALIDATE_EMAIL)) {
+            Notification::route('mail', $notificationEmail)->notify(new CustomPlanRequested([
+                ...$details,
+                'locations' => (int) $details['locations'],
+                'monthly_messages' => (int) $details['monthly_messages'],
+            ]));
+        }
     }
 }

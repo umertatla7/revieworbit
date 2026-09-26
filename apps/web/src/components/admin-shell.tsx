@@ -28,7 +28,7 @@ const adminNavigation: NavigationGroup[] = [
     { href: "/admin/twilio", label: "Twilio setup", icon: "messages" },
     { href: "/admin/stripe", label: "Stripe setup", icon: "billing" },
     { href: "/admin/toast", label: "Toast POS setup", icon: "integrations" },
-    { href: "/admin/settings", label: "Platform settings", icon: "settings", badge: "Soon" },
+    { href: "/admin/settings", label: "Platform settings", icon: "settings" },
     { href: "/admin/help", label: "Help & documentation", icon: "help" },
   ] },
 ];
@@ -51,5 +51,5 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  return <WorkspaceShell groups={adminNavigation} mode="platform" userName={user?.name ?? "B Reviews Admin"} userDetail={user?.platform_roles?.join(" · ") ?? "platform administrator"} onLogout={logout}>{children}</WorkspaceShell>;
+  return <WorkspaceShell groups={adminNavigation} mode="platform" userName={user?.name ?? "B Review Admin"} userDetail={user?.platform_roles?.join(" · ") ?? "platform administrator"} onLogout={logout}>{children}</WorkspaceShell>;
 }

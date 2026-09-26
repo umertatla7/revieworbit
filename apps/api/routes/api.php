@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\MessagingConfigurationController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\PlatformBusinessController;
+use App\Http\Controllers\Api\V1\PlatformNotificationController;
 use App\Http\Controllers\Api\V1\PlatformPlanController;
 use App\Http\Controllers\Api\V1\PlatformStripeController;
 use App\Http\Controllers\Api\V1\PlatformToastController;
@@ -48,7 +49,7 @@ Route::get('/health/ready', function (): JsonResponse {
 Route::prefix('api/v1')->group(function (): void {
     Route::get('/status', fn (): JsonResponse => response()->json([
         'data' => [
-            'name' => 'B Reviews API',
+            'name' => 'B Review API',
             'version' => 'v1',
         ],
     ]));
@@ -59,7 +60,7 @@ Route::prefix('api/v1')->group(function (): void {
     Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:5,1');
     Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::get('/plans', [BillingController::class, 'plans'])->middleware('throttle:60,1');
-    Route::post('/plans/custom-quote', [BillingController::class, 'publicCustomQuote'])->middleware('throttle:20,1');
+    Route::post('/plans/custom-request', [BillingController::class, 'publicCustomRequest'])->middleware('throttle:5,1');
     Route::post('/integrations/generic/events', [GenericEventController::class, 'ingest'])->middleware(['integration.key', 'throttle:120,1']);
     Route::post('/webhooks/generic', [GenericEventController::class, 'webhook'])->middleware('throttle:120,1');
     Route::post('/webhooks/twilio/status', [TwilioWebhookController::class, 'status'])->middleware('throttle:600,1');
@@ -83,6 +84,7 @@ Route::prefix('api/v1')->group(function (): void {
             Route::post('/businesses/{business}/support-sessions', [PlatformBusinessController::class, 'startSupportSession']);
             Route::get('/plans', [PlatformPlanController::class, 'index']);
             Route::get('/stripe', [PlatformStripeController::class, 'show']);
+            Route::get('/notifications', [PlatformNotificationController::class, 'show']);
             Route::get('/usage', [PlatformPlanController::class, 'usage']);
         });
 
@@ -93,6 +95,8 @@ Route::prefix('api/v1')->group(function (): void {
         Route::post('/admin/plans/{plan}/stripe-sync', [PlatformPlanController::class, 'syncStripe'])->middleware('platform.role:super_admin');
         Route::post('/admin/businesses/{business}/owners/{user}/password', [PlatformBusinessController::class, 'resetOwnerPassword'])
             ->middleware(['platform.role:super_admin', 'throttle:5,1']);
+        Route::put('/admin/notifications', [PlatformNotificationController::class, 'update'])
+            ->middleware('platform.role:super_admin');
 
         Route::prefix('admin/stripe')->middleware('platform.role:super_admin')->group(function (): void {
             Route::put('/', [PlatformStripeController::class, 'update']);
@@ -124,8 +128,7 @@ Route::prefix('api/v1')->group(function (): void {
             Route::get('/message-deliveries', [MessagingConfigurationController::class, 'deliveries']);
             Route::middleware('business.role:owner,manager')->group(function (): void {
                 Route::patch('/business', [BusinessController::class, 'update']);
-                Route::post('/billing/custom-quote', [BillingController::class, 'customQuote'])->middleware('throttle:30,1');
-                Route::post('/billing/custom-plan', [BillingController::class, 'customPlan'])->middleware('throttle:5,1');
+                Route::post('/billing/custom-request', [BillingController::class, 'customRequest'])->middleware('throttle:5,1');
                 Route::patch('/profile', [ProfileController::class, 'update']);
                 Route::post('/profile/avatar', [ProfileController::class, 'avatar']);
                 Route::put('/profile/password', [ProfileController::class, 'password'])->middleware('throttle:5,1');

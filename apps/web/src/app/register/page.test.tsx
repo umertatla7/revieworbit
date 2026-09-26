@@ -43,4 +43,14 @@ describe("registration", () => {
     expect(screen.getByText("At least 12 characters")).toHaveClass("text-forest");
     expect(screen.getByText("Passwords match")).toHaveClass("text-forest");
   });
+
+  it("offers only USA and Canada with state and city fields and no timezone", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByRole("option", { name: "USA" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Canada" })).toBeInTheDocument();
+    expect(screen.getByLabelText("State / province")).toBeInTheDocument();
+    expect(screen.getByLabelText("City")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/time zone/i)).not.toBeInTheDocument();
+  });
 });

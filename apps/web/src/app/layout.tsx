@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "B Reviews",
+  title: "B Review",
   description: "Consent-aware automated review requests for local businesses.",
   icons: {
     icon: "/favicon.webp",

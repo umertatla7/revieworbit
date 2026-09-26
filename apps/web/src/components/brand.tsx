@@ -14,12 +14,12 @@ export function Brand({
     return (
       <Link
         href={href}
-        aria-label="B Reviews home"
+        aria-label="B Review home"
         className="inline-flex items-center"
       >
         <Image
           src="/b-review-logo.webp"
-          alt="B Reviews by BuckeyeRank"
+          alt="B Review by BuckeyeRank"
           width={692}
           height={198}
           priority
@@ -32,7 +32,7 @@ export function Brand({
   return (
     <Link
       href={href}
-      aria-label="B Reviews home"
+      aria-label="B Review home"
       className="flex items-center gap-2.5"
     >
       <span
@@ -49,7 +49,7 @@ export function Brand({
       <strong
         className={`text-[15px] tracking-tight ${inverse ? "text-white" : "text-ink"}`}
       >
-        B Reviews
+        B Review
       </strong>
     </Link>
   );

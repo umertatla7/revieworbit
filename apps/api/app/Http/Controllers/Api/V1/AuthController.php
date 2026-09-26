@@ -6,12 +6,15 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\SubscriptionPlan;
 use App\Domain\Tenancy\Services\BusinessProvisioner;
+use App\Domain\Tenancy\Services\NotificationRecipient;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Notifications\RegistrationSubmitted;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password as PasswordBroker;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -20,7 +23,7 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function register(Request $request, Auditor $auditor, BusinessProvisioner $provisioner): JsonResponse
+    public function register(Request $request, Auditor $auditor, BusinessProvisioner $provisioner, NotificationRecipient $recipient): JsonResponse
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
@@ -33,11 +36,10 @@ class AuthController extends Controller
             'location_name' => ['nullable', 'string', 'max:160'],
             'address_line1' => ['nullable', 'string', 'max:180'],
             'address_line2' => ['nullable', 'string', 'max:180'],
-            'city' => ['nullable', 'string', 'max:120'],
-            'region' => ['nullable', 'string', 'max:120'],
+            'city' => ['required', 'string', 'max:120'],
+            'region' => ['required', 'string', 'max:2'],
             'postal_code' => ['nullable', 'string', 'max:24'],
-            'country' => ['required', 'string', 'size:2'],
-            'timezone' => ['required', 'timezone'],
+            'country' => ['required', Rule::in(['US', 'CA'])],
             'plan_id' => ['nullable', Rule::exists('subscription_plans', 'id')->where(fn ($query) => $query->where('status', 'active')->where('is_self_serve', true)->where('is_public', true))],
         ]);
 
@@ -47,6 +49,7 @@ class AuthController extends Controller
 
         $result = $provisioner->provision([
             ...$data,
+            'timezone' => $this->timezoneForRegion($data['country'], $data['region']),
             'owner_name' => $data['name'],
             'owner_email' => $data['email'],
             'owner_password' => $data['password'],
@@ -71,6 +74,21 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
         $auditor->record($request, 'business.created', $business, ['name' => $business->name]);
+
+        $notificationEmail = $recipient->registrationEmail();
+        if (filter_var($notificationEmail, FILTER_VALIDATE_EMAIL)) {
+            Notification::route('mail', $notificationEmail)->notify(new RegistrationSubmitted([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'business_name' => $data['business_name'],
+                'business_phone' => $data['business_phone'],
+                'industry' => $data['industry'],
+                'city' => $data['city'],
+                'region' => strtoupper($data['region']),
+                'country' => $data['country'],
+                'plan_name' => $plan->name,
+            ]));
+        }
 
         return response()->json(['data' => $this->userPayload($user->fresh('businessMemberships.business'))], 201);
     }
@@ -181,5 +199,34 @@ class AuthController extends Controller
                 'role' => $membership->role->value,
             ])->values(),
         ];
+    }
+
+    private function timezoneForRegion(string $country, string $region): string
+    {
+        $region = strtoupper($region);
+        if ($country === 'CA') {
+            return match ($region) {
+                'BC' => 'America/Vancouver',
+                'AB' => 'America/Edmonton',
+                'SK' => 'America/Regina',
+                'MB' => 'America/Winnipeg',
+                'NB', 'NS', 'PE' => 'America/Halifax',
+                'NL' => 'America/St_Johns',
+                'YT' => 'America/Whitehorse',
+                'NT' => 'America/Yellowknife',
+                'NU' => 'America/Iqaluit',
+                default => 'America/Toronto',
+            };
+        }
+
+        return match ($region) {
+            'HI' => 'Pacific/Honolulu',
+            'AK' => 'America/Anchorage',
+            'AZ' => 'America/Phoenix',
+            'CA', 'NV', 'OR', 'WA' => 'America/Los_Angeles',
+            'CO', 'ID', 'MT', 'NM', 'UT', 'WY' => 'America/Denver',
+            'AL', 'AR', 'IA', 'IL', 'KS', 'LA', 'MN', 'MO', 'MS', 'ND', 'NE', 'OK', 'SD', 'TN', 'TX', 'WI' => 'America/Chicago',
+            default => 'America/New_York',
+        };
     }
 }

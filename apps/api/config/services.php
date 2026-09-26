@@ -66,6 +66,10 @@ return [
         'url' => env('WEB_URL', 'http://localhost:3000'),
     ],
 
+    'notifications' => [
+        'registration_email' => env('REGISTRATION_NOTIFICATION_EMAIL', 'zee@buckeyerank.com'),
+    ],
+
     'stripe' => [
         'api_version' => env('STRIPE_API_VERSION', '2026-02-25.clover'),
     ],

@@ -48,13 +48,9 @@ describe("customer billing", () => {
     expect(screen.getByRole("button", { name: "Upgrade to Expansion" })).toBeEnabled();
   });
 
-  it("lets an owner configure requirements and see a calculated custom price", async () => {
+  it("lets an owner send custom location and SMS requirements without showing a price", async () => {
     apiMock.mockImplementation((path:string) => {
-      if(path==="/api/v1/billing/custom-quote") return Promise.resolve({data:{
-        currency:"USD", monthly_price_minor:6000, annual_price_minor:60000,
-        usage:{monthly_customers:100,messages:1000,sms_messages:1000,sms_segments:1000,mms_messages:0,locations:1},
-        recommended_allowances:{template_limit:5,automation_limit:2,automation_step_limit:2,media_template_limit:1,review_destination_limit:1},
-      }});
+      if(path==="/api/v1/billing/custom-request") return Promise.resolve({message:"Your custom plan requirements were sent to our team."});
       return Promise.resolve({data:{
         stripe_ready:true,has_stripe_customer:false,can_manage_billing:true,managed_by_support:false,trial_eligible:true,current_plan_code:"launch",
         subscription:null,plans:[launchPlan,plan,expansionPlan,customPlan],payment_methods:[],invoices:[],stripe_error:null,
@@ -66,12 +62,13 @@ describe("customer billing", () => {
     const customize = screen.getByRole("button",{name:"Customize plan"});
     expect(customize).toBeEnabled();
     await act(async()=>{ fireEvent.click(customize); });
-    expect(await screen.findByRole("dialog",{name:"Customize your B Reviews plan"})).toBeInTheDocument();
-    fireEvent.change(await screen.findByLabelText(/^Customers each month/),{target:{value:"100"}});
+    expect(await screen.findByRole("dialog",{name:"Customize your B Review plan"})).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Business locations"),{target:{value:"1"}});
-    fireEvent.change(screen.getByLabelText(/^Exact monthly messages \(optional\)/),{target:{value:"1000"}});
+    fireEvent.change(screen.getByLabelText(/^SMS messages per month/),{target:{value:"1000"}});
 
-    expect(await screen.findByText("$60.00")).toBeInTheDocument();
-    expect(screen.getByRole("button",{name:"Continue with this package"})).toBeEnabled();
+    expect(screen.queryByText("$60.00")).not.toBeInTheDocument();
+    await act(async()=>{ fireEvent.click(screen.getByRole("button",{name:"Send requirements"})); });
+    expect(apiMock).toHaveBeenCalledWith("/api/v1/billing/custom-request",expect.objectContaining({method:"POST"}),true);
+    expect(await screen.findByText("Your custom plan requirements were sent to our team.")).toBeInTheDocument();
   });
 });
