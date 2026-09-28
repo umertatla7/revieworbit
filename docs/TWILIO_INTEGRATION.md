@@ -65,6 +65,14 @@ Trial mode is a temporary exception to the production subaccount architecture:
 
 Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in delivery history, prefixes SMS text with `[ReviewOrbit test]`, and never creates a review-click record. Trial restrictions can still cause Twilio to reject custom content or unverified destinations; the rejection code is shown without exposing credentials.
 
+### Operational visibility
+
+- The platform Twilio screen records credential-save, verification-success, and verification-failure events without storing credential values in the log.
+- Each business Twilio screen records configuration, verification, and test-message events. Delivery history combines production and test SMS records, marks test traffic, masks recipients to the final four digits, and displays provider failures.
+- Invalid form submissions preserve the entered SID and sender values so an administrator can correct the specific field. The Auth Token remains write-only and is cleared from the browser after a successful save.
+- New message templates default to active. Draft templates remain visible in the automation builder with an instruction to activate them; an active automation cannot use a draft template.
+- Template previews render the current tenant's business and selected location names. Preview links are non-customer example links and do not create tracking records.
+
 ## Twilio Console setup per business
 
 1. Create a dedicated subaccount for the ReviewOrbit business.

@@ -47,6 +47,7 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             ->assertJsonMissingPath('data.auth_token');
 
         $this->assertSame('draft', $response->json('data.status'));
+        $this->assertSame('platform.twilio.credentials_updated', $response->json('data.activity.0.action'));
         $this->assertNotSame($authToken, DB::table('platform_twilio_settings')->value('auth_token'));
         $this->assertSame($authToken, PlatformTwilioSetting::firstOrFail()->auth_token);
 
@@ -91,6 +92,10 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             'customer_id' => $customerA->id,
             'trial_recipient_verified' => false,
         ], $headers)->assertUnprocessable()->assertJsonValidationErrors('trial_recipient_verified');
+        $this->assertDatabaseHas('audit_logs', [
+            'business_id' => $businessA->id,
+            'action' => 'template.test_message_failed',
+        ]);
 
         $this->postJson("/api/v1/templates/{$templateA->id}/test", [
             'customer_id' => $customerB->id,
@@ -125,6 +130,11 @@ class TwilioPlatformAndTestMessageTest extends TestCase
         ]);
         $this->assertDatabaseMissing('test_message_deliveries', ['business_id' => $businessB->id]);
         $this->assertDatabaseHas('audit_logs', ['business_id' => $businessA->id, 'action' => 'template.test_message_sent']);
+        $this->getJson('/api/v1/message-deliveries', $headers)
+            ->assertOk()
+            ->assertJsonPath('data.0.is_test', true)
+            ->assertJsonPath('data.0.status', 'queued')
+            ->assertJsonPath('data.0.to_last_four', '0123');
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/Messages.json')
             && str_starts_with((string) $request['Body'], '[B Review test]')
             && $request['To'] === $customerA->phone_e164);

@@ -113,6 +113,9 @@ class AutomationController extends Controller
             if (! empty($data['location_id']) && $template->location_id !== $data['location_id']) {
                 throw ValidationException::withMessages(['message_template_id' => ['Select a template configured for the automation location.']]);
             }
+            if (($data['status'] ?? 'active') === 'active' && $template->status !== 'active') {
+                throw ValidationException::withMessages(['message_template_id' => ['Activate the selected message template before activating this automation.']]);
+            }
         }
         if (! empty($data['location_id'])) {
             Location::where('business_id', $businessId)->findOrFail($data['location_id']);
@@ -121,6 +124,9 @@ class AutomationController extends Controller
             $template = MessageTemplate::where('business_id', $businessId)->findOrFail($followUp['message_template_id']);
             if (! empty($data['location_id']) && $template->location_id !== $data['location_id']) {
                 throw ValidationException::withMessages(['follow_ups' => ['Every follow-up template must belong to the automation location.']]);
+            }
+            if (($data['status'] ?? 'active') === 'active' && $template->status !== 'active') {
+                throw ValidationException::withMessages(['follow_ups' => ['Activate every follow-up template before activating this automation.']]);
             }
         }
     }

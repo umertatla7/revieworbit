@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class TemplateController extends Controller
 {
@@ -37,6 +38,7 @@ class TemplateController extends Controller
     {
         abort_unless($entitlements->for($request->attributes->get('business'))['can_add_template'], 422, 'Your current plan has reached its message template limit.');
         $data = $this->validated($request);
+        $data['status'] ??= 'active';
         $renderer->validate($data['body']);
         $this->validateMediaTemplate($request, $data);
         $template = MessageTemplate::create([...$data, 'business_id' => $request->attributes->get('business')->id]);
@@ -61,13 +63,20 @@ class TemplateController extends Controller
 
     public function preview(Request $request, TemplateRenderer $renderer): JsonResponse
     {
-        $data = $request->validate(['body' => ['required', 'string', 'max:1600']]);
+        $data = $request->validate([
+            'body' => ['required', 'string', 'max:1600'],
+            'location_id' => ['nullable', 'string'],
+        ]);
+        $business = $request->attributes->get('business');
+        $location = ! empty($data['location_id'])
+            ? Location::where('business_id', $business->id)->findOrFail($data['location_id'])
+            : Location::where('business_id', $business->id)->oldest()->first();
         $message = $renderer->render($data['body'], [
             'customer_first_name' => 'Umer',
             'customer_last_name' => 'Tatla',
-            'business_name' => 'AL Barber Shop',
-            'location_name' => 'Main Street Location',
-            'review_link' => 'https://revieworbit.test/r/example',
+            'business_name' => $business->name,
+            'location_name' => $location?->name ?? 'Your location',
+            'review_link' => rtrim(config('services.twilio.tracking_base_url'), '/').'/r/example',
             'employee_name' => 'Alex',
             'visit_date' => 'August 5, 2026',
         ]);
@@ -83,7 +92,15 @@ class TemplateController extends Controller
             'trial_recipient_verified' => ['sometimes', 'boolean'],
         ]);
         $customer = Customer::where('business_id', $model->business_id)->findOrFail($data['customer_id']);
-        $delivery = $messenger->send($model, $customer, $request->user()->id, (bool) ($data['trial_recipient_verified'] ?? false));
+        try {
+            $delivery = $messenger->send($model, $customer, $request->user()->id, (bool) ($data['trial_recipient_verified'] ?? false));
+        } catch (Throwable $exception) {
+            $auditor->record($request, 'template.test_message_failed', $model, [
+                'template_id' => $model->id,
+                'reason' => mb_substr($exception->getMessage(), 0, 500),
+            ]);
+            throw $exception;
+        }
         $auditor->record($request, 'template.test_message_sent', $delivery, [
             'template_id' => $model->id,
             'channel' => $delivery->channel,

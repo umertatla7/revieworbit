@@ -162,9 +162,12 @@ class MilestonesThreeToFiveTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('body');
 
         $body = 'Hi {{customer_first_name}}, thank you for visiting {{business_name}}. Share your honest feedback: {{review_link}}';
-        $this->postJson('/api/v1/templates', ['name' => 'Standard', 'body' => $body, 'status' => 'active'], $headers)->assertCreated();
+        $this->postJson('/api/v1/templates', ['name' => 'Standard', 'body' => $body], $headers)
+            ->assertCreated()
+            ->assertJsonPath('data.status', 'active');
         $this->postJson('/api/v1/templates/preview', ['body' => $body], $headers)
             ->assertOk()
+            ->assertJsonPath('data.message', fn (string $message): bool => str_contains($message, 'AL Barber Shop'))
             ->assertJsonPath('data.estimate.encoding', 'GSM-7')
             ->assertJsonFragment(['review_link']);
     }

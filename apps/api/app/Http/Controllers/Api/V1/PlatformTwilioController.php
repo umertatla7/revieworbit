@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Messaging\Models\PlatformTwilioSetting;
 use App\Domain\Messaging\Services\TwilioMessagingProvider;
@@ -80,6 +81,11 @@ class PlatformTwilioController extends Controller
                 'last_health_check_at' => now(),
                 'last_error' => mb_substr($exception->getMessage(), 0, 1000),
             ]);
+            $auditor->record($request, 'platform.twilio.credentials_verification_failed', $setting, [
+                'account_sid_last_four' => substr($setting->account_sid, -4),
+                'mode' => $setting->mode,
+                'reason' => mb_substr($exception->getMessage(), 0, 500),
+            ]);
 
             return response()->json(['message' => $exception->getMessage()], 422);
         }
@@ -96,6 +102,11 @@ class PlatformTwilioController extends Controller
             'verified_at' => $setting?->verified_at,
             'last_health_check_at' => $setting?->last_health_check_at,
             'last_error' => $setting?->last_error,
+            'activity' => AuditLog::whereIn('action', [
+                'platform.twilio.credentials_updated',
+                'platform.twilio.credentials_verified',
+                'platform.twilio.credentials_verification_failed',
+            ])->latest('created_at')->limit(20)->get(['id', 'action', 'changes', 'created_at']),
             'status_callback_url' => config('services.twilio.status_callback_url'),
             'inbound_webhook_url' => config('services.twilio.inbound_webhook_url'),
         ];

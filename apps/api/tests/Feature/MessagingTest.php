@@ -265,6 +265,19 @@ class MessagingTest extends TestCase
         Queue::assertNotPushed(SendAutomationDispatch::class, fn (SendAutomationDispatch $job) => $job->dispatchId === $inactiveDispatch->id);
     }
 
+    public function test_active_automation_rejects_a_draft_message_template(): void
+    {
+        [$owner, $business, , , $template, $rule] = $this->fixture();
+        $template->update(['status' => 'draft']);
+
+        $this->actingAs($owner)->patchJson('/api/v1/automations/'.$rule->id, [
+            'status' => 'active',
+            'message_template_id' => $template->id,
+        ], ['X-Business-ID' => $business->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('message_template_id');
+    }
+
     private function fixture(string $name = 'AL Barber Shop', string $channel = 'sms'): array
     {
         $owner = User::factory()->create();

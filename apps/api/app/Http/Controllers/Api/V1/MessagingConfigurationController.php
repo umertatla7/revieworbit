@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Audit\Models\AuditLog;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\MessagingConfiguration;
+use App\Domain\Messaging\Models\TestMessageDelivery;
 use App\Domain\Messaging\Services\TwilioCredentials;
 use App\Domain\Messaging\Services\TwilioMessagingProvider;
 use App\Http\Controllers\Controller;
@@ -19,9 +21,21 @@ class MessagingConfigurationController extends Controller
         $business = $request->attributes->get('business');
         $liveConfigured = $twilio->configured();
         $fakeAllowed = app()->environment('local', 'testing') && config('services.twilio.provider') === 'fake';
+        $activity = AuditLog::where('business_id', $business->id)
+            ->whereIn('action', [
+                'messaging.configuration.updated',
+                'messaging.configuration.verified',
+                'messaging.configuration.verification_failed',
+                'template.test_message_sent',
+                'template.test_message_failed',
+            ])
+            ->latest('created_at')
+            ->limit(20)
+            ->get(['id', 'action', 'changes', 'created_at']);
 
         return response()->json(['data' => [
             'configuration' => MessagingConfiguration::where('business_id', $business->id)->first(),
+            'activity' => $activity,
             'platform' => [
                 'provider' => $liveConfigured ? 'twilio' : config('services.twilio.provider'),
                 'configured' => $liveConfigured || $fakeAllowed,
@@ -75,6 +89,9 @@ class MessagingConfigurationController extends Controller
             return response()->json(['data' => ['configuration' => $configuration->fresh(), 'provider' => $details]]);
         } catch (\Throwable $exception) {
             $configuration->update(['status' => 'error', 'last_health_check_at' => now(), 'last_error' => mb_substr($exception->getMessage(), 0, 1000)]);
+            $auditor->record($request, 'messaging.configuration.verification_failed', $configuration, [
+                'reason' => mb_substr($exception->getMessage(), 0, 500),
+            ]);
 
             return response()->json(['message' => $exception->getMessage()], 422);
         }
@@ -86,8 +103,33 @@ class MessagingConfigurationController extends Controller
         $deliveries = MessageDelivery::where('business_id', $businessId)
             ->with(['customer:id,first_name,last_name', 'template:id,name'])
             ->latest()
-            ->paginate(50);
+            ->limit(50)
+            ->get()
+            ->map(fn (MessageDelivery $delivery): array => $this->deliveryPayload($delivery, false));
+        $tests = TestMessageDelivery::where('business_id', $businessId)
+            ->with(['customer:id,first_name,last_name', 'template:id,name'])
+            ->latest()
+            ->limit(50)
+            ->get()
+            ->map(fn (TestMessageDelivery $delivery): array => $this->deliveryPayload($delivery, true));
+        $items = $deliveries->concat($tests)->sortByDesc('created_at')->take(50)->values();
 
-        return response()->json(['data' => $deliveries->items(), 'meta' => ['total' => $deliveries->total()]]);
+        return response()->json(['data' => $items, 'meta' => ['total' => $items->count()]]);
+    }
+
+    private function deliveryPayload(MessageDelivery|TestMessageDelivery $delivery, bool $isTest): array
+    {
+        return [
+            'id' => $delivery->id,
+            'channel' => $delivery->channel,
+            'status' => $delivery->status,
+            'to_last_four' => $delivery->to_last_four,
+            'created_at' => $delivery->created_at,
+            'provider_error_code' => $delivery->provider_error_code,
+            'failure_message' => $delivery->failure_message,
+            'is_test' => $isTest,
+            'customer' => $delivery->customer?->only(['first_name', 'last_name']),
+            'template' => $delivery->template?->only(['name']),
+        ];
     }
 }

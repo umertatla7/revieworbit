@@ -97,7 +97,7 @@ export default function TemplatesPage() {
   const [body, setBody] = useState(defaultBody);
   const channel = "sms";
   const [templateName, setTemplateName] = useState("");
-  const [templateStatus, setTemplateStatus] = useState("draft");
+  const [templateStatus, setTemplateStatus] = useState("active");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
@@ -155,17 +155,32 @@ export default function TemplatesPage() {
           setConfiguration(messagingResult.data.configuration);
           setPlatform(messagingResult.data.platform);
           setBusiness(businessResult.data);
+          const firstLocation = businessResult.data.locations[0];
+          if (firstLocation) {
+            setLocationId(firstLocation.id);
+            setDestinationId(
+              firstLocation.review_destinations.find(
+                (destination) => destination.status === "active",
+              )?.id ?? "",
+            );
+          }
         },
       )
       .catch((error: Error) => setMessage(error.message));
   }, []);
 
-  async function previewBody(value: string) {
+  async function previewBody(value: string, previewLocationId = locationId) {
     setBody(value);
     try {
       const result = await api<{ data: Preview }>(
         "/api/v1/templates/preview",
-        { method: "POST", body: JSON.stringify({ body: value }) },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            body: value,
+            location_id: previewLocationId || null,
+          }),
+        },
         true,
       );
       setPreview(result.data);
@@ -222,7 +237,7 @@ export default function TemplatesPage() {
     setEditingId(null);
     setTemplateName("");
     setBody(defaultBody);
-    setTemplateStatus("draft");
+    setTemplateStatus("active");
     setLocationId("");
     setDestinationId("");
     setAttachMedia(false);
@@ -335,8 +350,10 @@ export default function TemplatesPage() {
                 required
                 value={locationId}
                 onChange={(event) => {
-                  setLocationId(event.target.value);
+                  const nextLocationId = event.target.value;
+                  setLocationId(nextLocationId);
                   setDestinationId("");
+                  void previewBody(body, nextLocationId);
                 }}
               >
                 <option value="" disabled>
@@ -455,6 +472,10 @@ export default function TemplatesPage() {
               <option value="draft">Draft</option>
               <option value="active">Active</option>
             </select>
+            <span className="mt-2 block text-xs font-normal text-ink/45">
+              Active templates can be selected in automations. Draft templates
+              remain saved but cannot send messages.
+            </span>
           </label>
           {message && (
             <p
