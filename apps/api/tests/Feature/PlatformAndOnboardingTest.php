@@ -16,6 +16,7 @@ use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -101,6 +102,54 @@ class PlatformAndOnboardingTest extends TestCase
             'registration_email' => 'registrations@buckeyerank.com',
         ]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'platform.notifications.updated']);
+    }
+
+    public function test_super_admin_can_securely_configure_and_test_platform_smtp(): void
+    {
+        Mail::fake();
+        $admin = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $admin->id, 'role' => PlatformRole::SuperAdmin]);
+        $password = 'smtp-test-password-that-must-be-encrypted';
+
+        $this->actingAs($admin)->getJson('/api/v1/admin/mail')
+            ->assertOk()
+            ->assertJsonPath('data.configured', false)
+            ->assertJsonPath('data.host', 'smtp.hostinger.com')
+            ->assertJsonMissingPath('data.password');
+
+        $this->putJson('/api/v1/admin/mail', [
+            'host' => 'smtp.hostinger.com',
+            'port' => 465,
+            'encryption' => 'ssl',
+            'username' => 'mailer@example.com',
+            'password' => $password,
+            'from_address' => 'mailer@example.com',
+            'from_name' => 'B Review',
+            'enabled' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.configured', true)
+            ->assertJsonPath('data.password_configured', true)
+            ->assertJsonPath('data.status', 'draft')
+            ->assertJsonMissingPath('data.password');
+
+        $this->assertNotSame($password, DB::table('platform_mail_settings')->value('password'));
+        $this->postJson('/api/v1/admin/mail/test', [
+            'recipient' => 'deliverability@example.com',
+        ])->assertOk()
+            ->assertJsonPath('data.status', 'verified');
+
+        $this->assertDatabaseHas('audit_logs', ['action' => 'platform.mail.configuration_updated']);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'platform.mail.test_succeeded']);
+    }
+
+    public function test_platform_smtp_configuration_is_super_admin_only(): void
+    {
+        $manager = User::factory()->create();
+        PlatformUserRole::create(['user_id' => $manager->id, 'role' => PlatformRole::PlatformManager]);
+
+        $this->actingAs($manager)->getJson('/api/v1/admin/mail')->assertForbidden();
+        $this->putJson('/api/v1/admin/mail', [])->assertForbidden();
+        $this->postJson('/api/v1/admin/mail/test', [])->assertForbidden();
     }
 
     public function test_business_owner_cannot_access_platform_customer_directory(): void

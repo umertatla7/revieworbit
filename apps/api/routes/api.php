@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\MediaController;
 use App\Http\Controllers\Api\V1\MessagingConfigurationController;
 use App\Http\Controllers\Api\V1\OnboardingController;
 use App\Http\Controllers\Api\V1\PlatformBusinessController;
+use App\Http\Controllers\Api\V1\PlatformMailController;
 use App\Http\Controllers\Api\V1\PlatformNotificationController;
 use App\Http\Controllers\Api\V1\PlatformPlanController;
 use App\Http\Controllers\Api\V1\PlatformStripeController;
@@ -97,6 +98,12 @@ Route::prefix('api/v1')->group(function (): void {
             ->middleware(['platform.role:super_admin', 'throttle:5,1']);
         Route::put('/admin/notifications', [PlatformNotificationController::class, 'update'])
             ->middleware('platform.role:super_admin');
+
+        Route::prefix('admin/mail')->middleware('platform.role:super_admin')->group(function (): void {
+            Route::get('/', [PlatformMailController::class, 'show']);
+            Route::put('/', [PlatformMailController::class, 'update']);
+            Route::post('/test', [PlatformMailController::class, 'test'])->middleware('throttle:5,1');
+        });
 
         Route::prefix('admin/stripe')->middleware('platform.role:super_admin')->group(function (): void {
             Route::put('/', [PlatformStripeController::class, 'update']);

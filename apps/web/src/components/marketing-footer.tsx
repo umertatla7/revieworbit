@@ -5,7 +5,7 @@ export function MarketingFooter() {
     <div className="mx-auto grid w-full max-w-[1180px] gap-8 border-b border-black/[0.04] px-6 py-14 md:grid-cols-[.95fr_1.2fr] md:items-center lg:px-8">
       <div><h2 className="text-base font-bold text-[#202024]">Subscribe to Latest News</h2><p className="mt-3 max-w-lg text-[15px] leading-7">Consectetur eget cras neque augue malesuada urna urna hendrerit tellus.</p></div>
       <form className="flex min-h-[62px] overflow-hidden rounded-lg border border-black/15 bg-white p-1.5 shadow-sm" action="mailto:zee@buckeyerank.com" method="post" encType="text/plain">
-        <input className="min-w-0 flex-1 bg-transparent px-4 text-sm outline-none" type="email" name="email" placeholder="Your email *" aria-label="Email address" required/>
+        <input className="min-w-0 flex-1 bg-transparent px-4 text-sm outline-none" type="email" name="email" placeholder="Your email *" aria-label="Newsletter email address" required/>
         <button className="rounded-md bg-[#bd202c] px-6 text-sm font-semibold text-white transition hover:bg-[#9e1822]" type="submit">Subscribe Now</button>
       </form>
     </div>
