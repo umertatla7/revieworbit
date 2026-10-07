@@ -92,6 +92,11 @@ const customerNavigation: NavigationGroup[] = [
         label: "Profile settings",
         icon: "settings",
       },
+      {
+        href: "/dashboard/messages",
+        label: "SMS connection",
+        icon: "messages",
+      },
       { href: "/dashboard/help", label: "Help & support", icon: "help" },
     ],
   },
@@ -102,7 +107,6 @@ const supportConnections: NavigationGroup = {
   collapsible: true,
   items: [
     { href: "/dashboard/integrations", label: "POS & integrations", icon: "integrations" },
-    { href: "/dashboard/messages", label: "Twilio / SMS connection", icon: "messages" },
     { href: "/dashboard/webhooks", label: "Webhook activity", icon: "webhooks", badge: "Soon" },
   ],
 };
@@ -131,7 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    const connectionPages = ["/dashboard/integrations", "/dashboard/messages", "/dashboard/webhooks"];
+    const connectionPages = ["/dashboard/integrations", "/dashboard/webhooks"];
     if (supportReady && !supportBusiness && connectionPages.some((path) => pathname.startsWith(path))) {
       router.replace("/dashboard");
     }

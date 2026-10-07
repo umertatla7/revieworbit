@@ -1,12 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PasswordInput } from "@/components/password-input";
 import { ApiError, api } from "@/lib/api";
+
+type SenderMode = "platform_shared" | "platform_dedicated" | "customer_owned";
 
 type Configuration = {
   status: string;
+  sender_mode: SenderMode;
   twilio_subaccount_sid?: string;
+  twilio_auth_token_configured: boolean;
   twilio_messaging_service_sid?: string;
   sms_sender?: string;
   sms_enabled: boolean;
@@ -23,7 +27,9 @@ type Activity = {
 type Platform = {
   provider: string;
   configured: boolean;
-  recommended_architecture: string;
+  default_sender_available: boolean;
+  default_sender_last_four?: string;
+  support_access: boolean;
   status_callback_url: string;
   inbound_webhook_url: string;
 };
@@ -49,7 +55,9 @@ export default function MessagesPage() {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [senderMode, setSenderMode] = useState<SenderMode>("platform_shared");
   const [subaccountSid, setSubaccountSid] = useState("");
+  const [authToken, setAuthToken] = useState("");
   const [serviceSid, setServiceSid] = useState("");
   const [smsSender, setSmsSender] = useState("");
   const [smsEnabled, setSmsEnabled] = useState(false);
@@ -58,6 +66,7 @@ export default function MessagesPage() {
   function applyConfiguration(next: Configuration | null) {
     setConfiguration(next);
     if (!next) return;
+    setSenderMode(next.sender_mode ?? "platform_shared");
     setSubaccountSid(next.twilio_subaccount_sid ?? "");
     setServiceSid(next.twilio_messaging_service_sid ?? "");
     setSmsSender(next.sms_sender ?? "");
@@ -112,14 +121,16 @@ export default function MessagesPage() {
           method: "PUT",
           body: JSON.stringify({
             twilio_subaccount_sid: subaccountSid.trim(),
+            twilio_auth_token: authToken || null,
             twilio_messaging_service_sid: serviceSid.trim(),
             sms_sender: smsSender.trim() || null,
             sms_enabled: smsEnabled,
-            whatsapp_enabled: false,
+            sender_mode: senderMode,
           }),
         },
         true,
       );
+      setAuthToken("");
       setMessage("Messaging configuration saved. Verify it before sending.");
       await load();
     } catch (error) {
@@ -172,121 +183,150 @@ export default function MessagesPage() {
       )}
       <div className="mt-7 grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
         <form action={save} className="panel space-y-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold">Twilio workspace</h2>
+              <h2 className="text-lg font-semibold">Choose your SMS sender</h2>
               <p className="mt-1 text-xs text-ink/45">
-                One subaccount and sender pool for this business
+                Most businesses should use the B Review default number.
               </p>
             </div>
             <span className="pill capitalize">
-              {configuration?.status ?? "Not configured"}
+              {configuration?.status?.replaceAll("_", " ") ?? "Not configured"}
             </span>
           </div>
-          {!platform?.configured && (
-            <p className="rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-              First save and verify the master Twilio Account SID and Auth Token
-              in{" "}
-              <Link className="font-semibold underline" href="/admin/twilio">
-                Admin → Twilio setup
-              </Link>
-              . The fields below are different: they connect this
-              business&apos;s Messaging Service and sender.
+
+          <div className="grid gap-3">
+            <SenderChoice
+              selected={senderMode === "platform_shared"}
+              disabled={!platform?.default_sender_available}
+              title="Use the B Review default number"
+              detail={platform?.default_sender_available
+                ? `Ready to use · number ending ${platform.default_sender_last_four ?? "••••"}`
+                : "Temporarily unavailable — contact B Review support"}
+              onSelect={() => setSenderMode("platform_shared")}
+            />
+            <SenderChoice
+              selected={senderMode === "platform_dedicated"}
+              title="Request a dedicated B Review number"
+              detail="B Review purchases, registers, and assigns a separate number to this business."
+              onSelect={() => setSenderMode("platform_dedicated")}
+            />
+            <SenderChoice
+              selected={senderMode === "customer_owned"}
+              title="Connect my own Twilio account"
+              detail="Use credentials and an approved sender owned by this business."
+              onSelect={() => setSenderMode("customer_owned")}
+            />
+          </div>
+          {fieldErrors.sender_mode?.[0] && (
+            <p className="text-xs text-red-700">{fieldErrors.sender_mode[0]}</p>
+          )}
+
+          {senderMode === "platform_shared" && (
+            <p className="rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+              B Review manages the API credentials, Messaging Service, delivery
+              callbacks, and number. Your workspace remains separately tracked.
             </p>
           )}
-          {platform?.provider === "fake" && (
-            <p className="rounded-xl bg-blue-50 p-4 text-sm leading-6 text-blue-800">
-              Local safe mode is active. Messages are recorded through the fake
-              provider and never leave B Review.
+
+          {senderMode === "platform_dedicated" && !platform?.support_access && (
+            <p className="rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              Saving this choice sends the workspace into pending assignment.
+              B Review support will contact you after number and compliance setup.
             </p>
           )}
-          <label className="label">
-            Customer Twilio subaccount SID
-            <input
-              className="field font-mono"
-              name="subaccount_sid"
-              required
-              value={subaccountSid}
-              onChange={(event) => setSubaccountSid(event.target.value)}
-              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              pattern="AC[a-fA-F0-9]{32}"
-              spellCheck={false}
-            />
-            <span className="mt-2 block text-xs font-normal text-ink/45">
-              Must start with AC and contain exactly 32 letters/numbers after
-              it. A Trial account may use the same Account SID configured by the
-              administrator.
-            </span>
-            {fieldErrors.twilio_subaccount_sid?.[0] && (
-              <span className="mt-2 block text-xs font-normal text-red-700">
-                {fieldErrors.twilio_subaccount_sid[0]}
+
+          {(senderMode === "customer_owned" ||
+            (senderMode === "platform_dedicated" && platform?.support_access)) && (
+            <div className="space-y-5 rounded-xl border border-ink/10 bg-paper p-4">
+              <label className="label">
+                Twilio Account SID
+                <input
+                  className="field font-mono"
+                  value={subaccountSid}
+                  onChange={(event) => setSubaccountSid(event.target.value)}
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  required
+                  pattern="AC[a-fA-F0-9]{32}"
+                  spellCheck={false}
+                />
+                {fieldErrors.twilio_subaccount_sid?.[0] && <FieldError text={fieldErrors.twilio_subaccount_sid[0]} />}
+              </label>
+              {senderMode === "customer_owned" && (
+                <label className="label">
+                  Twilio Auth Token
+                  <PasswordInput
+                    className="field font-mono"
+                    value={authToken}
+                    onChange={(event) => setAuthToken(event.target.value)}
+                    autoComplete="new-password"
+                    placeholder={configuration?.twilio_auth_token_configured
+                      ? "Saved securely — leave blank to keep it"
+                      : "Enter the Twilio Auth Token"}
+                  />
+                  <span className="mt-2 block text-xs font-normal text-ink/45">
+                    Encrypted at rest and never returned after saving.
+                  </span>
+                  {fieldErrors.twilio_auth_token?.[0] && <FieldError text={fieldErrors.twilio_auth_token[0]} />}
+                </label>
+              )}
+              <label className="label">
+                Messaging Service SID
+                <input
+                  className="field font-mono"
+                  value={serviceSid}
+                  onChange={(event) => setServiceSid(event.target.value)}
+                  placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  required
+                  pattern="MG[a-fA-F0-9]{32}"
+                  spellCheck={false}
+                />
+                {fieldErrors.twilio_messaging_service_sid?.[0] && <FieldError text={fieldErrors.twilio_messaging_service_sid[0]} />}
+              </label>
+              <label className="label">
+                Approved SMS number
+                <input
+                  className="field"
+                  value={smsSender}
+                  onChange={(event) => setSmsSender(event.target.value)}
+                  placeholder="+17138931144"
+                  required
+                />
+                <span className="mt-2 block text-xs font-normal text-ink/45">
+                  Use E.164 format and add the number to the Messaging Service sender pool.
+                </span>
+                {fieldErrors.sms_sender?.[0] && <FieldError text={fieldErrors.sms_sender[0]} />}
+              </label>
+            </div>
+          )}
+
+          {senderMode !== "platform_dedicated" || platform?.support_access ? (
+            <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={smsEnabled}
+                onChange={(event) => setSmsEnabled(event.target.checked)}
+              />
+              <span>
+                <strong className="block">Enable SMS after verification</strong>
+                <span className="mt-1 block text-xs leading-5 text-ink/45">
+                  Consent, suppression, carrier registration, and plan limits still apply.
+                </span>
               </span>
-            )}
-          </label>
-          <label className="label">
-            Messaging Service SID
-            <input
-              className="field font-mono"
-              name="service_sid"
-              required
-              value={serviceSid}
-              onChange={(event) => setServiceSid(event.target.value)}
-              placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              pattern="MG[a-fA-F0-9]{32}"
-              spellCheck={false}
-            />
-            <span className="mt-2 block text-xs font-normal text-ink/45">
-              Copy the Service SID from Twilio Messaging → Services. It starts
-              with MG; it is not the Auth Token.
-            </span>
-            {fieldErrors.twilio_messaging_service_sid?.[0] && (
-              <span className="mt-2 block text-xs font-normal text-red-700">
-                {fieldErrors.twilio_messaging_service_sid[0]}
-              </span>
-            )}
-          </label>
-          <label className="label">
-            Approved SMS sender
-            <input
-              className="field"
-              name="sms_sender"
-              value={smsSender}
-              onChange={(event) => setSmsSender(event.target.value)}
-              placeholder="+12025550123"
-            />
-            <span className="mt-2 block text-xs font-normal text-ink/45">
-              Use E.164 format, such as +17138931144, and make sure this number
-              is in the Messaging Service sender pool.
-            </span>
-            {fieldErrors.sms_sender?.[0] && (
-              <span className="mt-2 block text-xs font-normal text-red-700">
-                {fieldErrors.sms_sender[0]}
-              </span>
-            )}
-          </label>
-          <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
-            <input
-              type="checkbox"
-              name="sms_enabled"
-              checked={smsEnabled}
-              onChange={(event) => setSmsEnabled(event.target.checked)}
-            />
-            <span>
-              <strong className="block">Enable SMS</strong>
-              <span className="mt-1 block text-xs leading-5 text-ink/45">
-                Requires an approved sender in the service pool and applicable
-                carrier registration.
-              </span>
-            </span>
-          </label>
+            </label>
+          ) : null}
+
           <div className="flex flex-wrap gap-3">
             <button className="button-primary" disabled={busy}>
-              Save configuration
+              {senderMode === "platform_dedicated" && !platform?.support_access
+                ? "Request dedicated number"
+                : "Save configuration"}
             </button>
             <button
               type="button"
               className="button-secondary"
-              disabled={busy || !configuration || !platform?.configured}
+              disabled={busy || !configuration || configuration.status === "pending_assignment"}
               onClick={verify}
             >
               Verify & activate
@@ -299,20 +339,20 @@ export default function MessagesPage() {
         <aside className="space-y-5">
           <section className="rounded-xl bg-ink p-5 text-white">
             <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ffb0b6]">
-              Recommended sender model
+              Sender protection
             </p>
             <h2 className="mt-3 text-lg font-semibold">
-              Dedicated per business
+              Credentials stay private
             </h2>
             <ul className="mt-4 space-y-3 text-xs leading-5 text-white/65">
               <li>
-                • Separate reputation, opt-outs, analytics, and compliance.
+                • B Review credentials are never shown to customer accounts.
               </li>
               <li>
-                • A Messaging Service chooses from its approved SMS sender pool.
+                • Customer-owned Auth Tokens are encrypted and write-only.
               </li>
               <li>
-                • B Review never accepts an arbitrary unverified From number.
+                • Every selected sender is verified against its Messaging Service.
               </li>
             </ul>
           </section>
@@ -439,4 +479,41 @@ function activityLabel(action: string): string {
     "template.test_message_failed": "Test SMS failed",
   };
   return labels[action] ?? action.replaceAll(".", " ");
+}
+
+function SenderChoice({
+  selected,
+  disabled = false,
+  title,
+  detail,
+  onSelect,
+}: {
+  selected: boolean;
+  disabled?: boolean;
+  title: string;
+  detail: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onSelect}
+      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selected ? "border-[#33479e] bg-[#33479e]/5 ring-1 ring-[#33479e]" : "border-ink/10 bg-white"}`}
+    >
+      <span className="flex items-start gap-3">
+        <span className={`mt-0.5 grid size-5 place-items-center rounded-full border ${selected ? "border-[#33479e]" : "border-ink/25"}`}>
+          {selected && <span className="size-2.5 rounded-full bg-[#33479e]" />}
+        </span>
+        <span>
+          <strong className="block text-sm">{title}</strong>
+          <span className="mt-1 block text-xs leading-5 text-ink/50">{detail}</span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function FieldError({ text }: { text: string }) {
+  return <span className="mt-2 block text-xs font-normal text-red-700">{text}</span>;
 }

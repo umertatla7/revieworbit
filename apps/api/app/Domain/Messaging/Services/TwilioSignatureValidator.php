@@ -8,7 +8,11 @@ class TwilioSignatureValidator
 
     public function valid(string $url, array $parameters, ?string $signature): bool
     {
-        $authToken = $this->credentials->authToken();
+        return $this->validWithToken($url, $parameters, $signature, $this->credentials->authToken());
+    }
+
+    public function validWithToken(string $url, array $parameters, ?string $signature, ?string $authToken): bool
+    {
         if (! is_string($signature) || $signature === '' || ! $authToken) {
             return false;
         }

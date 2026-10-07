@@ -9,7 +9,10 @@ use RuntimeException;
 
 class TwilioMessagingProvider implements MessagingProvider
 {
-    public function __construct(private readonly TwilioCredentials $credentials) {}
+    public function __construct(
+        private readonly TwilioCredentials $credentials,
+        private readonly TwilioConnectionResolver $connections,
+    ) {}
 
     public function configured(): bool
     {
@@ -18,11 +21,11 @@ class TwilioMessagingProvider implements MessagingProvider
 
     public function send(MessagingConfiguration $configuration, array $message): array
     {
-        $this->assertConfigured();
-        $accountSid = $configuration->twilio_subaccount_sid;
+        $connection = $this->connections->resolve($configuration);
+        $accountSid = $connection['account_sid'];
         $payload = [
             'To' => $message['channel'] === 'whatsapp' ? 'whatsapp:'.$message['to'] : $message['to'],
-            'MessagingServiceSid' => $configuration->twilio_messaging_service_sid,
+            'MessagingServiceSid' => $connection['messaging_service_sid'],
             'StatusCallback' => config('services.twilio.status_callback_url'),
         ];
 
@@ -37,7 +40,7 @@ class TwilioMessagingProvider implements MessagingProvider
         }
 
         $response = Http::asForm()
-            ->withBasicAuth($this->credentials->accountSid(), $this->credentials->authToken())
+            ->withBasicAuth($connection['auth_username'], $connection['auth_secret'])
             ->post("https://api.twilio.com/2010-04-01/Accounts/{$accountSid}/Messages.json", $payload);
 
         if ($response->failed()) {
@@ -49,17 +52,24 @@ class TwilioMessagingProvider implements MessagingProvider
 
     public function verify(MessagingConfiguration $configuration): array
     {
-        $this->assertConfigured();
-        $accountSid = $configuration->twilio_subaccount_sid;
-        $serviceSid = $configuration->twilio_messaging_service_sid;
-        $response = Http::withBasicAuth($this->credentials->accountSid(), $this->credentials->authToken())
+        $connection = $this->connections->resolve($configuration);
+        $accountSid = $connection['account_sid'];
+        $serviceSid = $connection['messaging_service_sid'];
+        $response = Http::withBasicAuth($connection['auth_username'], $connection['auth_secret'])
             ->get("https://messaging.twilio.com/v1/Services/{$serviceSid}");
 
         if ($response->failed() || $response->json('account_sid') !== $accountSid) {
             throw new RuntimeException('The Twilio Messaging Service could not be verified for this subaccount.');
         }
 
-        return ['sid' => $serviceSid, 'name' => $response->json('friendly_name')];
+        $this->assertSenderInService($connection);
+
+        return [
+            'sid' => $serviceSid,
+            'name' => $response->json('friendly_name'),
+            'sender_mode' => $connection['mode'],
+            'sender_last_four' => $connection['sms_sender'] ? substr($connection['sms_sender'], -4) : null,
+        ];
     }
 
     public function verifyPlatform(): array
@@ -76,18 +86,49 @@ class TwilioMessagingProvider implements MessagingProvider
             throw new RuntimeException('Twilio rejected the platform credentials.');
         }
 
+        $setting = $this->credentials->setting();
+        if ($setting?->shared_sender_enabled) {
+            if (! $setting->shared_messaging_service_sid || ! $setting->shared_sms_sender) {
+                throw new RuntimeException('The shared sender configuration is incomplete.');
+            }
+            $connection = [
+                'auth_username' => $accountSid,
+                'auth_secret' => (string) $setting->auth_token,
+                'messaging_service_sid' => $setting->shared_messaging_service_sid,
+                'sms_sender' => $setting->shared_sms_sender,
+            ];
+            $serviceResponse = Http::withBasicAuth($connection['auth_username'], $connection['auth_secret'])
+                ->get("https://messaging.twilio.com/v1/Services/{$connection['messaging_service_sid']}");
+            if ($serviceResponse->failed() || $serviceResponse->json('account_sid') !== $accountSid) {
+                throw new RuntimeException('The shared Messaging Service could not be verified in the platform account.');
+            }
+            $this->assertSenderInService($connection);
+        }
+
         return [
             'sid' => $accountSid,
             'name' => $response->json('friendly_name'),
             'account_status' => $response->json('status'),
             'type' => $response->json('type'),
+            'shared_sender_verified' => (bool) $setting?->shared_sender_enabled,
         ];
     }
 
-    private function assertConfigured(): void
+    /** @param array{auth_username:string,auth_secret:string,messaging_service_sid:string,sms_sender:?string} $connection */
+    private function assertSenderInService(array $connection): void
     {
-        if (! $this->configured()) {
-            throw new RuntimeException('Twilio platform credentials are not configured.');
+        if (! $connection['sms_sender']) {
+            throw new RuntimeException('An approved SMS sender is required.');
+        }
+
+        $response = Http::withBasicAuth($connection['auth_username'], $connection['auth_secret'])
+            ->get("https://messaging.twilio.com/v1/Services/{$connection['messaging_service_sid']}/PhoneNumbers", ['PageSize' => 50]);
+        if ($response->failed()) {
+            throw new RuntimeException('The Twilio Messaging Service sender pool could not be verified.');
+        }
+        $senders = collect($response->json('phone_numbers', []));
+        if (! $senders->contains(fn (array $sender): bool => ($sender['phone_number'] ?? null) === $connection['sms_sender'])) {
+            throw new RuntimeException('The approved SMS sender is not in this Messaging Service sender pool.');
         }
     }
 }

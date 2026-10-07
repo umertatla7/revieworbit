@@ -21,26 +21,25 @@ class TemplateTestMessenger
         private readonly TemplateRenderer $renderer,
         private readonly PersonalizedMediaRenderer $mediaRenderer,
         private readonly TwilioCredentials $credentials,
+        private readonly TwilioConnectionResolver $connections,
         private readonly TrialMessageLimiter $trialLimiter,
     ) {}
 
     public function send(MessageTemplate $template, Customer $customer, string $requestedByUserId, bool $trialRecipientVerified): TestMessageDelivery
     {
-        if (app()->environment('production') && ! $this->credentials->configured()) {
-            throw ValidationException::withMessages(['configuration' => ['A super administrator must verify the Twilio platform connection first.']]);
-        }
-
         $channel = $template->channel === 'mms' ? 'sms' : $template->channel;
         if (! in_array($channel, ['sms', 'whatsapp'], true)) {
             throw ValidationException::withMessages(['template' => ['This template channel cannot be tested.']]);
         }
-        if ($this->credentials->mode() === 'trial' && ! $trialRecipientVerified) {
-            throw ValidationException::withMessages(['trial_recipient_verified' => ['Confirm that this recipient is verified in the Twilio Trial account.']]);
-        }
-
         $configuration = MessagingConfiguration::where('business_id', $template->business_id)->first();
         if (! $configuration || $configuration->status !== 'active') {
             throw ValidationException::withMessages(['configuration' => ['Verify and activate this business’s Twilio configuration before sending a test.']]);
+        }
+        if (! $this->connections->configuredFor($configuration)) {
+            throw ValidationException::withMessages(['configuration' => ['This business’s Twilio connection is incomplete.']]);
+        }
+        if ($configuration->sender_mode !== 'customer_owned' && $this->credentials->mode() === 'trial' && ! $trialRecipientVerified) {
+            throw ValidationException::withMessages(['trial_recipient_verified' => ['Confirm that this recipient is verified in the Twilio Trial account.']]);
         }
         if ($channel === 'sms' && ! $configuration->sms_enabled) {
             throw ValidationException::withMessages(['configuration' => ['SMS is not enabled for this business.']]);

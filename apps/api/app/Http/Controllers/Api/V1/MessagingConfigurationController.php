@@ -7,16 +7,18 @@ use App\Domain\Audit\Services\Auditor;
 use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\MessagingConfiguration;
+use App\Domain\Messaging\Models\PlatformTwilioSetting;
 use App\Domain\Messaging\Models\TestMessageDelivery;
-use App\Domain\Messaging\Services\TwilioCredentials;
 use App\Domain\Messaging\Services\TwilioMessagingProvider;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class MessagingConfigurationController extends Controller
 {
-    public function show(Request $request, TwilioMessagingProvider $twilio, TwilioCredentials $credentials): JsonResponse
+    public function show(Request $request, TwilioMessagingProvider $twilio): JsonResponse
     {
         $business = $request->attributes->get('business');
         $liveConfigured = $twilio->configured();
@@ -33,14 +35,19 @@ class MessagingConfigurationController extends Controller
             ->limit(20)
             ->get(['id', 'action', 'changes', 'created_at']);
 
+        $configuration = MessagingConfiguration::where('business_id', $business->id)->first();
+        $platformSetting = PlatformTwilioSetting::query()->latest()->first();
+
         return response()->json(['data' => [
-            'configuration' => MessagingConfiguration::where('business_id', $business->id)->first(),
+            'configuration' => $this->configurationPayload($configuration),
             'activity' => $activity,
             'platform' => [
                 'provider' => $liveConfigured ? 'twilio' : config('services.twilio.provider'),
                 'configured' => $liveConfigured || $fakeAllowed,
-                'mode' => $credentials->mode(),
-                'recommended_architecture' => 'dedicated_subaccount',
+                'mode' => $platformSetting?->mode ?? 'production',
+                'default_sender_available' => (bool) ($platformSetting?->status === 'verified' && $platformSetting?->shared_sender_enabled),
+                'default_sender_last_four' => $platformSetting?->shared_sms_sender ? substr($platformSetting->shared_sms_sender, -4) : null,
+                'support_access' => $request->attributes->get('support_access') === true,
                 'status_callback_url' => config('services.twilio.status_callback_url'),
                 'inbound_webhook_url' => config('services.twilio.inbound_webhook_url'),
             ],
@@ -51,35 +58,80 @@ class MessagingConfigurationController extends Controller
     {
         $business = $request->attributes->get('business');
         $data = $request->validate([
-            'twilio_subaccount_sid' => ['required', 'regex:/^AC[a-fA-F0-9]{32}$/'],
-            'twilio_messaging_service_sid' => ['required', 'regex:/^MG[a-fA-F0-9]{32}$/'],
+            'sender_mode' => ['required', Rule::in(['platform_shared', 'platform_dedicated', 'customer_owned'])],
+            'twilio_subaccount_sid' => ['nullable', 'regex:/^AC[a-fA-F0-9]{32}$/'],
+            'twilio_auth_token' => ['nullable', 'string', 'min:20', 'max:255'],
+            'twilio_messaging_service_sid' => ['nullable', 'regex:/^MG[a-fA-F0-9]{32}$/'],
             'sms_sender' => ['nullable', 'regex:/^\+[1-9][0-9]{7,14}$/'],
-            'whatsapp_sender' => ['nullable', 'regex:/^\+[1-9][0-9]{7,14}$/'],
             'sms_enabled' => ['required', 'boolean'],
-            'whatsapp_enabled' => ['required', 'boolean'],
         ]);
-        if ($data['sms_enabled']) {
-            abort_unless($data['sms_sender'], 422, 'Select an approved SMS sender before enabling SMS.');
-        }
-        if ($data['whatsapp_enabled']) {
-            abort_unless($data['whatsapp_sender'], 422, 'Select an approved WhatsApp sender before enabling WhatsApp.');
+        $existing = MessagingConfiguration::where('business_id', $business->id)->first();
+        $attributes = [
+            'provider' => 'twilio',
+            'sender_mode' => $data['sender_mode'],
+            'status' => 'draft',
+            'sms_enabled' => $data['sms_enabled'],
+            'whatsapp_enabled' => false,
+            'verified_at' => null,
+            'last_error' => null,
+        ];
+
+        if ($data['sender_mode'] === 'platform_shared') {
+            $platform = PlatformTwilioSetting::query()->latest()->first();
+            if (! $platform || $platform->status !== 'verified' || ! $platform->shared_sender_enabled) {
+                throw ValidationException::withMessages(['sender_mode' => ['The B Review default sender is not available yet. Contact support.']]);
+            }
+            $attributes += [
+                'twilio_subaccount_sid' => null,
+                'twilio_auth_token' => null,
+                'twilio_messaging_service_sid' => null,
+                'sms_sender' => null,
+            ];
+        } elseif ($data['sender_mode'] === 'platform_dedicated') {
+            if ($request->attributes->get('support_access') !== true) {
+                $attributes += [
+                    'status' => 'pending_assignment',
+                    'sms_enabled' => false,
+                    'twilio_subaccount_sid' => null,
+                    'twilio_auth_token' => null,
+                    'twilio_messaging_service_sid' => null,
+                    'sms_sender' => null,
+                ];
+            } else {
+                $this->requireTwilioFields($data, false);
+                $attributes += [
+                    'twilio_subaccount_sid' => $data['twilio_subaccount_sid'],
+                    'twilio_auth_token' => null,
+                    'twilio_messaging_service_sid' => $data['twilio_messaging_service_sid'],
+                    'sms_sender' => $data['sms_sender'],
+                ];
+            }
+        } else {
+            $this->requireTwilioFields($data, true, $existing);
+            $attributes += [
+                'twilio_subaccount_sid' => $data['twilio_subaccount_sid'],
+                'twilio_messaging_service_sid' => $data['twilio_messaging_service_sid'],
+                'sms_sender' => $data['sms_sender'],
+            ];
+            if (! empty($data['twilio_auth_token'])) {
+                $attributes['twilio_auth_token'] = $data['twilio_auth_token'];
+            }
         }
 
-        $configuration = MessagingConfiguration::updateOrCreate(
-            ['business_id' => $business->id],
-            [...$data, 'provider' => 'twilio', 'status' => 'draft', 'verified_at' => null, 'last_error' => null],
-        );
-        $auditor->record($request, 'messaging.configuration.updated', $configuration, ['sms_enabled' => $configuration->sms_enabled, 'whatsapp_enabled' => $configuration->whatsapp_enabled]);
+        $configuration = MessagingConfiguration::updateOrCreate(['business_id' => $business->id], $attributes);
+        $auditor->record($request, 'messaging.configuration.updated', $configuration, [
+            'sender_mode' => $configuration->sender_mode,
+            'sms_enabled' => $configuration->sms_enabled,
+            'dedicated_assignment_pending' => $configuration->status === 'pending_assignment',
+        ]);
 
-        return response()->json(['data' => $configuration]);
+        return response()->json(['data' => $this->configurationPayload($configuration)]);
     }
 
-    public function verify(Request $request, MessagingProvider $provider, TwilioMessagingProvider $twilio, Auditor $auditor): JsonResponse
+    public function verify(Request $request, MessagingProvider $provider, Auditor $auditor): JsonResponse
     {
         $business = $request->attributes->get('business');
         $configuration = MessagingConfiguration::where('business_id', $business->id)->firstOrFail();
-
-        abort_if(app()->environment('production') && ! $twilio->configured(), 422, 'A super administrator must verify the Twilio platform connection first.');
 
         try {
             $details = $provider->verify($configuration);
@@ -95,6 +147,48 @@ class MessagingConfigurationController extends Controller
 
             return response()->json(['message' => $exception->getMessage()], 422);
         }
+    }
+
+    private function requireTwilioFields(array $data, bool $customerOwned, ?MessagingConfiguration $existing = null): void
+    {
+        $errors = [];
+        if (empty($data['twilio_subaccount_sid'])) {
+            $errors['twilio_subaccount_sid'][] = 'Enter the Twilio Account SID.';
+        }
+        if (empty($data['twilio_messaging_service_sid'])) {
+            $errors['twilio_messaging_service_sid'][] = 'Enter the Messaging Service SID.';
+        }
+        if (empty($data['sms_sender'])) {
+            $errors['sms_sender'][] = 'Enter the approved SMS phone number.';
+        }
+        $hasStoredToken = $existing?->sender_mode === 'customer_owned' && (bool) $existing->twilio_auth_token;
+        if ($customerOwned && empty($data['twilio_auth_token']) && ! $hasStoredToken) {
+            $errors['twilio_auth_token'][] = 'Enter the Auth Token the first time this Twilio account is connected.';
+        }
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function configurationPayload(?MessagingConfiguration $configuration): ?array
+    {
+        if (! $configuration) {
+            return null;
+        }
+
+        return [
+            'id' => $configuration->id,
+            'sender_mode' => $configuration->sender_mode,
+            'status' => $configuration->status,
+            'twilio_subaccount_sid' => $configuration->twilio_subaccount_sid,
+            'twilio_auth_token_configured' => (bool) $configuration->twilio_auth_token,
+            'twilio_messaging_service_sid' => $configuration->twilio_messaging_service_sid,
+            'sms_sender' => $configuration->sms_sender,
+            'sms_enabled' => $configuration->sms_enabled,
+            'verified_at' => $configuration->verified_at,
+            'last_health_check_at' => $configuration->last_health_check_at,
+            'last_error' => $configuration->last_error,
+        ];
     }
 
     public function deliveries(Request $request): JsonResponse

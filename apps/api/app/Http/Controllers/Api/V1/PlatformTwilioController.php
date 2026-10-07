@@ -24,15 +24,38 @@ class PlatformTwilioController extends Controller
         $data = $request->validate([
             'account_sid' => ['required', 'regex:/^AC[a-fA-F0-9]{32}$/'],
             'auth_token' => ['nullable', 'string', 'min:20', 'max:255'],
+            'shared_messaging_service_sid' => ['nullable', 'regex:/^MG[a-fA-F0-9]{32}$/'],
+            'shared_sms_sender' => ['nullable', 'regex:/^\+[1-9][0-9]{7,14}$/'],
+            'shared_sender_enabled' => ['sometimes', 'boolean'],
+            'shared_sender_compliance_confirmed' => ['sometimes', 'boolean'],
             'mode' => ['required', Rule::in(['trial', 'production'])],
         ]);
         $setting = PlatformTwilioSetting::query()->latest()->first();
         if (! $setting && empty($data['auth_token'])) {
             throw ValidationException::withMessages(['auth_token' => ['Enter the Twilio Auth Token the first time credentials are saved.']]);
         }
+        $sharedEnabled = $data['shared_sender_enabled'] ?? (bool) $setting?->shared_sender_enabled;
+        $complianceConfirmed = $data['shared_sender_compliance_confirmed'] ?? (bool) $setting?->shared_sender_compliance_confirmed_at;
+        $sharedServiceSid = $data['shared_messaging_service_sid'] ?? $setting?->shared_messaging_service_sid;
+        $sharedSmsSender = $data['shared_sms_sender'] ?? $setting?->shared_sms_sender;
+        if ($sharedEnabled) {
+            if (empty($sharedServiceSid)) {
+                throw ValidationException::withMessages(['shared_messaging_service_sid' => ['Enter the Messaging Service SID for the default sender.']]);
+            }
+            if (empty($sharedSmsSender)) {
+                throw ValidationException::withMessages(['shared_sms_sender' => ['Enter the phone number used by the default sender.']]);
+            }
+            if (! $complianceConfirmed) {
+                throw ValidationException::withMessages(['shared_sender_compliance_confirmed' => ['Confirm that Twilio approved this sender and campaign for the intended B Review use case.']]);
+            }
+        }
 
         $attributes = [
             'account_sid' => $data['account_sid'],
+            'shared_messaging_service_sid' => $sharedServiceSid ?: null,
+            'shared_sms_sender' => $sharedSmsSender ?: null,
+            'shared_sender_enabled' => $sharedEnabled,
+            'shared_sender_compliance_confirmed_at' => $complianceConfirmed ? ($setting?->shared_sender_compliance_confirmed_at ?? now()) : null,
             'mode' => $data['mode'],
             'status' => 'draft',
             'verified_at' => null,
@@ -52,6 +75,8 @@ class PlatformTwilioController extends Controller
             'account_sid_last_four' => substr($setting->account_sid, -4),
             'mode' => $setting->mode,
             'auth_token_rotated' => ! empty($data['auth_token']),
+            'shared_sender_enabled' => $setting->shared_sender_enabled,
+            'shared_sender_last_four' => $setting->shared_sms_sender ? substr($setting->shared_sms_sender, -4) : null,
         ]);
 
         return response()->json(['data' => $this->payload($setting->fresh())]);
@@ -97,6 +122,10 @@ class PlatformTwilioController extends Controller
             'configured' => (bool) $setting,
             'account_sid' => $setting?->account_sid,
             'auth_token_configured' => (bool) $setting?->auth_token,
+            'shared_messaging_service_sid' => $setting?->shared_messaging_service_sid,
+            'shared_sms_sender' => $setting?->shared_sms_sender,
+            'shared_sender_enabled' => (bool) $setting?->shared_sender_enabled,
+            'shared_sender_compliance_confirmed' => (bool) $setting?->shared_sender_compliance_confirmed_at,
             'mode' => $setting?->mode ?? 'trial',
             'status' => $setting?->status ?? 'not_configured',
             'verified_at' => $setting?->verified_at,

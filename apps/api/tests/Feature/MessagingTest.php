@@ -8,6 +8,7 @@ use App\Domain\Customers\Models\Customer;
 use App\Domain\Media\Models\MediaTemplate;
 use App\Domain\Messaging\Jobs\SendAutomationDispatch;
 use App\Domain\Messaging\Models\MessagingConfiguration;
+use App\Domain\Messaging\Models\PlatformTwilioSetting;
 use App\Domain\Messaging\Models\ReviewLink;
 use App\Domain\Messaging\Services\DueMessageDispatcher;
 use App\Domain\Messaging\Services\MessagingManager;
@@ -48,7 +49,9 @@ class MessagingTest extends TestCase
         [$ownerB, $businessB] = $this->fixture('Business B');
 
         $this->actingAs($ownerA)->putJson('/api/v1/messaging-configuration', [
+            'sender_mode' => 'customer_owned',
             'twilio_subaccount_sid' => 'AC'.str_repeat('a', 32),
+            'twilio_auth_token' => 'customer-owned-secret-token',
             'twilio_messaging_service_sid' => 'MG'.str_repeat('b', 32),
             'sms_sender' => '+12025550123',
             'whatsapp_sender' => null,
@@ -232,6 +235,47 @@ class MessagingTest extends TestCase
         $this->assertNotNull($customer->suppressions()->where('channel', 'whatsapp')->first()->released_at);
     }
 
+    public function test_stop_reply_on_shared_sender_suppresses_matching_customer_in_every_shared_workspace(): void
+    {
+        [, $businessA] = $this->fixture('Shared A');
+        [, $businessB] = $this->fixture('Shared B');
+        $serviceSid = 'MG'.str_repeat('d', 32);
+        PlatformTwilioSetting::create([
+            'account_sid' => 'AC'.str_repeat('c', 32),
+            'auth_token' => 'test-auth-token',
+            'shared_messaging_service_sid' => $serviceSid,
+            'shared_sms_sender' => '+12025550111',
+            'shared_sender_enabled' => true,
+            'shared_sender_compliance_confirmed_at' => now(),
+            'mode' => 'production',
+            'status' => 'verified',
+            'verified_at' => now(),
+        ]);
+        foreach ([$businessA, $businessB] as $business) {
+            $this->configuration($business, sms: true)->update([
+                'sender_mode' => 'platform_shared',
+                'twilio_subaccount_sid' => null,
+                'twilio_messaging_service_sid' => null,
+                'sms_sender' => null,
+            ]);
+        }
+        $payload = [
+            'MessagingServiceSid' => $serviceSid,
+            'From' => '+12025550123',
+            'To' => '+12025550111',
+            'OptOutType' => 'STOP',
+            'Body' => 'STOP',
+        ];
+        $url = config('services.twilio.inbound_webhook_url');
+
+        $this->post('/api/v1/webhooks/twilio/inbound', $payload, [
+            'HTTP_X_TWILIO_SIGNATURE' => $this->signature($url, $payload),
+        ])->assertNoContent();
+
+        $this->assertDatabaseHas('suppression_entries', ['business_id' => $businessA->id, 'channel' => 'sms', 'released_at' => null]);
+        $this->assertDatabaseHas('suppression_entries', ['business_id' => $businessB->id, 'channel' => 'sms', 'released_at' => null]);
+    }
+
     public function test_review_link_records_a_click_and_redirects_without_claiming_a_review(): void
     {
         [, $business, $location, $customer, , , , $visit] = $this->fixture();
@@ -299,6 +343,7 @@ class MessagingTest extends TestCase
         return MessagingConfiguration::create([
             'business_id' => $business->id,
             'provider' => 'twilio',
+            'sender_mode' => 'platform_dedicated',
             'status' => 'active',
             'twilio_subaccount_sid' => 'AC'.str_repeat('a', 32),
             'twilio_messaging_service_sid' => 'MG'.str_repeat('b', 32),

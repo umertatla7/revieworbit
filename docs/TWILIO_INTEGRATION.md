@@ -2,14 +2,20 @@
 
 ## Sender architecture
 
-ReviewOrbit uses Twilio's preferred ISV isolation model: one Twilio subaccount and one Messaging Service per ReviewOrbit business. The Messaging Service owns that business's approved sender pool, compliance registration, opt-out behavior, and delivery analytics.
+B Review supports three explicit sender modes:
+
+1. `platform_shared` — the business inherits the B Review-owned default Messaging Service and number. Platform credentials remain invisible to tenants. This mode may be enabled only after a super administrator records that Twilio approved the Brand/Campaign for the intended use.
+2. `platform_dedicated` — B Review assigns a separate account/subaccount, Messaging Service, and number. A customer can request this mode, but only an administrator in an audited support session can assign its SIDs and sender.
+3. `customer_owned` — the business supplies its own Account SID, Auth Token, Messaging Service, and approved number. Its Auth Token is encrypted, write-only, and tenant-scoped.
+
+Twilio's preferred production ISV isolation model remains one subaccount and one Messaging Service per customer business. A shared sender is an intentional commercial option, not a compliance bypass. Twilio can reject a campaign that represents multiple unrelated companies, so the platform refuses to expose a shared sender until its service, sender pool, credentials, and recorded compliance acknowledgement pass verification.
 
 This means:
 
 - A business does not enter an arbitrary `From` number.
 - SMS can use a Twilio number, toll-free sender, or other sender that has been added to the business's Messaging Service and completed all applicable registration.
 - WhatsApp uses a separately approved WhatsApp sender associated with that business.
-- A shared platform number is acceptable only for local or tightly controlled testing. It is not the production tenant model because reputation, opt-outs, and branding would be shared.
+- A shared number also shares reputation and provider-level opt-outs. A STOP-family reply therefore suppresses the matching recipient in every active workspace using that shared sender.
 - Platform staff can configure these values on behalf of a customer only through the existing audited support-session workflow.
 
 Twilio references: [Messaging Services](https://www.twilio.com/docs/messaging/services), [ISV A2P 10DLC onboarding and preferred subaccount architecture](https://www.twilio.com/docs/messaging/compliance/a2p-10dlc/onboarding-isv), and [WhatsApp sender onboarding](https://www.twilio.com/docs/whatsapp/self-sign-up).
@@ -49,7 +55,7 @@ TWILIO_INBOUND_WEBHOOK_URL=https://api.example.com/api/v1/webhooks/twilio/inboun
 TRACKING_BASE_URL=https://api.example.com
 ```
 
-The account SID and auth token are platform-level credentials. Per-business subaccount and Messaging Service SIDs, approved sender display values, and channel enablement are configured in **Customer dashboard → Messages**. Tokens are never stored per tenant.
+The platform Account SID and Auth Token are configured only once. The same parent credentials can be used for B Review-managed numbers. A business using `customer_owned` stores its own encrypted Auth Token; the token is never serialized, logged, or shown again. Sender choice and channel enablement are configured in **Customer dashboard → SMS connection**.
 
 Keep `MESSAGING_PROVIDER=fake` for local development and automated tests. The fake provider records the same delivery lifecycle but performs no network request.
 
@@ -73,7 +79,16 @@ Test delivery is rate limited and audited. It creates a separate test-delivery r
 - New message templates default to active. Draft templates remain visible in the automation builder with an instruction to activate them; an active automation cannot use a draft template.
 - Template previews render the current tenant's business and selected location names. Preview links are non-customer example links and do not create tracking records.
 
-## Twilio Console setup per business
+## Twilio Console and workspace setup
+
+### B Review default sender
+
+1. In the parent Twilio account, create the Messaging Service and add the purchased number to its Sender Pool.
+2. Complete the applicable Brand/Campaign or toll-free verification. Confirm with Twilio that the registered use case covers the businesses and message branding that will use it.
+3. In **Admin → Twilio setup**, enter the platform Account SID/Auth Token, default Messaging Service SID, and number. Record the compliance acknowledgement, save, and verify.
+4. A business owner can then select **Use the B Review default number**, save, and verify without seeing any credential.
+
+### Dedicated B Review sender
 
 1. Create a dedicated subaccount for the ReviewOrbit business.
 2. Create a Messaging Service inside that subaccount.
@@ -81,7 +96,14 @@ Test delivery is rate limited and audited. It creates a separate test-delivery r
 4. Enable Advanced Opt-Out and point incoming-message handling to `TWILIO_INBOUND_WEBHOOK_URL`.
 5. Configure the business's WhatsApp sender through the Twilio/Meta onboarding flow when WhatsApp is required.
 6. Create and receive approval for the WhatsApp Content Templates used by ReviewOrbit.
-7. Enter the subaccount SID, Messaging Service SID, and approved sender values in the business workspace. Save, then select **Verify & activate**.
+7. Start an audited support session, select **Dedicated B Review number**, enter the account/subaccount SID, Messaging Service SID, and approved sender, then verify.
+
+### Customer-owned Twilio
+
+1. The business selects **Connect my own Twilio account**.
+2. It enters its Account SID, Auth Token, Messaging Service SID, and approved E.164 number.
+3. After save, the Auth Token field clears and only a “saved securely” indicator remains.
+4. Verification confirms the Messaging Service belongs to that account and the number is present in its sender pool.
 
 ReviewOrbit supplies `TWILIO_STATUS_CALLBACK_URL` on every outgoing message and verifies `X-Twilio-Signature` before accepting either callback. See Twilio's [webhook security guidance](https://www.twilio.com/docs/usage/webhooks/webhooks-security).
 

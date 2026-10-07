@@ -8,6 +8,10 @@ type TwilioSetting = {
   configured: boolean;
   account_sid?: string;
   auth_token_configured: boolean;
+  shared_messaging_service_sid?: string;
+  shared_sms_sender?: string;
+  shared_sender_enabled: boolean;
+  shared_sender_compliance_confirmed: boolean;
   mode: "trial" | "production";
   status: "not_configured" | "draft" | "verified" | "error";
   verified_at?: string;
@@ -28,6 +32,10 @@ export default function AdminTwilioPage() {
   const [busy, setBusy] = useState(false);
   const [accountSid, setAccountSid] = useState("");
   const [authToken, setAuthToken] = useState("");
+  const [sharedServiceSid, setSharedServiceSid] = useState("");
+  const [sharedSmsSender, setSharedSmsSender] = useState("");
+  const [sharedSenderEnabled, setSharedSenderEnabled] = useState(false);
+  const [complianceConfirmed, setComplianceConfirmed] = useState(false);
   const [mode, setMode] = useState<"trial" | "production">("trial");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
@@ -35,6 +43,10 @@ export default function AdminTwilioPage() {
     setSetting(next);
     setAccountSid(next.account_sid ?? "");
     setMode(next.mode);
+    setSharedServiceSid(next.shared_messaging_service_sid ?? "");
+    setSharedSmsSender(next.shared_sms_sender ?? "");
+    setSharedSenderEnabled(next.shared_sender_enabled);
+    setComplianceConfirmed(next.shared_sender_compliance_confirmed);
   }
 
   async function load() {
@@ -60,6 +72,10 @@ export default function AdminTwilioPage() {
           body: JSON.stringify({
             account_sid: accountSid.trim(),
             auth_token: authToken || null,
+            shared_messaging_service_sid: sharedServiceSid.trim() || null,
+            shared_sms_sender: sharedSmsSender.trim() || null,
+            shared_sender_enabled: sharedSenderEnabled,
+            shared_sender_compliance_confirmed: complianceConfirmed,
             mode,
           }),
         },
@@ -112,8 +128,8 @@ export default function AdminTwilioPage() {
         <h1 className="page-title">Twilio platform connection</h1>
         <p className="page-intro">
           Connect the B Review-owned Twilio account once. Credentials are
-          encrypted and never shown again; each customer workspace then uses its
-          own Messaging Service.
+          encrypted and never shown again. Workspaces can inherit the verified
+          default sender or use an approved dedicated connection.
         </p>
       </header>
 
@@ -205,6 +221,77 @@ export default function AdminTwilioPage() {
               <option value="production">Production</option>
             </select>
           </label>
+          <section className="space-y-4 rounded-xl border border-ink/10 bg-paper p-4">
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={sharedSenderEnabled}
+                onChange={(event) => setSharedSenderEnabled(event.target.checked)}
+              />
+              <span>
+                <strong className="block">Offer the B Review default number</strong>
+                <span className="mt-1 block text-xs leading-5 text-ink/50">
+                  Customer workspaces can inherit this sender without receiving
+                  the platform Auth Token.
+                </span>
+              </span>
+            </label>
+            {sharedSenderEnabled && (
+              <>
+                <label className="label">
+                  Default Messaging Service SID
+                  <input
+                    className="field font-mono"
+                    value={sharedServiceSid}
+                    onChange={(event) => setSharedServiceSid(event.target.value)}
+                    placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    required
+                    pattern="MG[a-fA-F0-9]{32}"
+                    spellCheck={false}
+                  />
+                  {fieldErrors.shared_messaging_service_sid?.[0] && (
+                    <span className="mt-2 block text-xs font-normal text-red-700">
+                      {fieldErrors.shared_messaging_service_sid[0]}
+                    </span>
+                  )}
+                </label>
+                <label className="label">
+                  Default SMS number
+                  <input
+                    className="field"
+                    value={sharedSmsSender}
+                    onChange={(event) => setSharedSmsSender(event.target.value)}
+                    placeholder="+17138931144"
+                    required
+                  />
+                  {fieldErrors.shared_sms_sender?.[0] && (
+                    <span className="mt-2 block text-xs font-normal text-red-700">
+                      {fieldErrors.shared_sms_sender[0]}
+                    </span>
+                  )}
+                </label>
+                <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-900">
+                  <input
+                    className="mt-1"
+                    type="checkbox"
+                    checked={complianceConfirmed}
+                    onChange={(event) => setComplianceConfirmed(event.target.checked)}
+                  />
+                  <span>
+                    I confirm Twilio approved this number, Messaging Service,
+                    Brand, and Campaign for the businesses and message use case
+                    that will use the shared sender.
+                  </span>
+                </label>
+                {fieldErrors.shared_sender_compliance_confirmed?.[0] && (
+                  <span className="block text-xs text-red-700">
+                    {fieldErrors.shared_sender_compliance_confirmed[0]}
+                  </span>
+                )}
+              </>
+            )}
+          </section>
           <div className="flex flex-wrap gap-3">
             <button className="button-primary" disabled={busy}>
               {busy ? "Saving…" : "Save credentials"}
@@ -226,12 +313,12 @@ export default function AdminTwilioPage() {
             <ol className="mt-4 space-y-3 text-xs leading-5 text-white/70">
               <li>1. Copy Account SID and Auth Token from Twilio Console.</li>
               <li>2. Verify the platform connection here.</li>
-              <li>3. Create a Messaging Service in the same Trial account.</li>
-              <li>4. Add the Trial sender to its sender pool.</li>
+              <li>3. Create the approved Messaging Service.</li>
+              <li>4. Add the purchased number to its sender pool.</li>
               <li>5. Verify the recipient number in Twilio.</li>
               <li>
-                6. Configure the customer workspace and send from Message
-                Templates.
+                6. Save the default sender above, verify it, then select it in
+                the customer workspace.
               </li>
             </ol>
             <a

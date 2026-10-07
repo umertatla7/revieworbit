@@ -140,6 +140,78 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             && $request['To'] === $customerA->phone_e164);
     }
 
+    public function test_business_owner_can_select_verified_platform_shared_sender_without_receiving_platform_credentials(): void
+    {
+        $accountSid = 'AC'.str_repeat('a', 32);
+        $serviceSid = 'MG'.str_repeat('b', 32);
+        PlatformTwilioSetting::create([
+            'account_sid' => $accountSid,
+            'auth_token' => 'super-secret-twilio-auth-token',
+            'shared_messaging_service_sid' => $serviceSid,
+            'shared_sms_sender' => '+12025550111',
+            'shared_sender_enabled' => true,
+            'shared_sender_compliance_confirmed_at' => now(),
+            'mode' => 'production',
+            'status' => 'verified',
+            'verified_at' => now(),
+        ]);
+        [$owner, $business] = $this->businessFixture('Shared Sender Business', '+12025550123', true);
+
+        $headers = ['X-Business-ID' => $business->id];
+        $this->actingAs($owner)->putJson('/api/v1/messaging-configuration', [
+            'sender_mode' => 'platform_shared',
+            'twilio_subaccount_sid' => null,
+            'twilio_auth_token' => null,
+            'twilio_messaging_service_sid' => null,
+            'sms_sender' => null,
+            'sms_enabled' => true,
+        ], $headers)->assertOk()
+            ->assertJsonPath('data.sender_mode', 'platform_shared')
+            ->assertJsonPath('data.twilio_auth_token_configured', false)
+            ->assertJsonMissingPath('data.twilio_auth_token');
+
+        Http::fake([
+            "https://messaging.twilio.com/v1/Services/{$serviceSid}" => Http::response([
+                'sid' => $serviceSid,
+                'account_sid' => $accountSid,
+                'friendly_name' => 'B Review shared sender',
+            ]),
+            "https://messaging.twilio.com/v1/Services/{$serviceSid}/PhoneNumbers*" => Http::response([
+                'phone_numbers' => [['phone_number' => '+12025550111']],
+            ]),
+        ]);
+
+        $this->postJson('/api/v1/messaging-configuration/verify', [], $headers)
+            ->assertOk()
+            ->assertJsonPath('data.configuration.status', 'active')
+            ->assertJsonPath('data.provider.sender_mode', 'platform_shared');
+    }
+
+    public function test_customer_owned_auth_token_is_encrypted_write_only_and_tenant_scoped(): void
+    {
+        [$ownerA, $businessA] = $this->businessFixture('Customer-owned A', '+12025550123', true);
+        [$ownerB, $businessB] = $this->businessFixture('Customer-owned B', '+12025550124', true);
+        $token = 'customer-owned-twilio-auth-token';
+
+        $this->actingAs($ownerA)->putJson('/api/v1/messaging-configuration', [
+            'sender_mode' => 'customer_owned',
+            'twilio_subaccount_sid' => 'AC'.str_repeat('c', 32),
+            'twilio_auth_token' => $token,
+            'twilio_messaging_service_sid' => 'MG'.str_repeat('d', 32),
+            'sms_sender' => '+12025550125',
+            'sms_enabled' => true,
+        ], ['X-Business-ID' => $businessA->id])->assertOk()
+            ->assertJsonPath('data.twilio_auth_token_configured', true)
+            ->assertJsonMissingPath('data.twilio_auth_token');
+
+        $this->assertNotSame($token, DB::table('messaging_configurations')->where('business_id', $businessA->id)->value('twilio_auth_token'));
+        $this->assertSame($token, MessagingConfiguration::where('business_id', $businessA->id)->firstOrFail()->twilio_auth_token);
+        $this->actingAs($ownerB)->getJson('/api/v1/messaging-configuration', ['X-Business-ID' => $businessB->id])
+            ->assertOk()
+            ->assertJsonPath('data.configuration.sender_mode', 'platform_dedicated')
+            ->assertJsonMissingPath('data.configuration.twilio_auth_token');
+    }
+
     private function businessFixture(string $name, string $phone, bool $withConsent): array
     {
         $owner = User::factory()->create();
@@ -174,6 +246,7 @@ class TwilioPlatformAndTestMessageTest extends TestCase
         MessagingConfiguration::create([
             'business_id' => $business->id,
             'provider' => 'twilio',
+            'sender_mode' => 'platform_dedicated',
             'status' => 'active',
             'twilio_subaccount_sid' => 'AC'.str_repeat('a', 32),
             'twilio_messaging_service_sid' => 'MG'.str_repeat('b', 32),
