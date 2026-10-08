@@ -250,6 +250,45 @@ class MilestoneSixTest extends TestCase
         Storage::disk('local')->assertExists($response->json('data.background_image_path'));
     }
 
+    public function test_media_can_replace_its_photo_and_be_deleted_after_linked_template_is_archived(): void
+    {
+        Storage::fake('local');
+        [$owner, $business] = $this->fixture();
+        $headers = ['X-Business-ID' => $business->id];
+        $created = $this->actingAs($owner)->post('/api/v1/media-templates', [
+            'name' => 'Editable photo', 'background' => UploadedFile::fake()->image('first.png', 800, 600),
+            'placement_mode' => 'manual',
+            'x' => 25, 'y' => 38, 'placement_width' => 50, 'placement_height' => 26,
+            'top_left_x' => 25, 'top_left_y' => 38, 'top_right_x' => 75, 'top_right_y' => 38,
+            'bottom_right_x' => 75, 'bottom_right_y' => 64, 'bottom_left_x' => 25, 'bottom_left_y' => 64,
+        ], $headers)->assertCreated()->json('data');
+        $url = '/api/v1/media-templates/'.$created['id'];
+        $values = [...$created['text_configuration'], 'name' => 'Updated photo',
+            'placement_width' => $created['text_configuration']['width'],
+            'placement_height' => $created['text_configuration']['height']];
+        [$otherOwner, $otherBusiness] = $this->fixture('Other business');
+        $this->actingAs($otherOwner)->post($url.'/update', $values, ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $this->deleteJson($url, [], ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $this->actingAs($owner)->post($url.'/update', [...$values, 'background' => UploadedFile::fake()->image('small.png', 10, 10)], $headers)
+            ->assertUnprocessable()->assertJsonValidationErrors('background');
+        Storage::disk('local')->assertExists($created['background_image_path']);
+        $updated = $this->post($url.'/update', [...$values, 'background' => UploadedFile::fake()->image('replacement.png', 1000, 700)], $headers)
+            ->assertOk()->assertJsonPath('data.width', 1000)->assertJsonPath('data.height', 700)->json('data');
+        Storage::disk('local')->assertExists($updated['background_image_path']);
+        Storage::disk('local')->assertMissing($created['background_image_path']);
+        $this->post($url.'/update', $values, $headers)->assertOk()->assertJsonPath('data.background_image_path', $updated['background_image_path']);
+        $message = $this->postJson('/api/v1/templates', [
+            'name' => 'Linked template', 'channel' => 'sms', 'body' => 'Hi {{customer_first_name}} {{review_link}}',
+            'include_media' => true, 'media_template_id' => $created['id'], 'status' => 'draft',
+        ], $headers)->assertCreated()->json('data');
+        $this->deleteJson($url, [], $headers)->assertUnprocessable();
+        $this->deleteJson('/api/v1/templates/'.$message['id'], [], $headers)->assertNoContent();
+        $this->deleteJson($url, [], $headers)->assertNoContent();
+        $this->assertDatabaseMissing('media_templates', ['id' => $created['id']]);
+        $this->assertDatabaseHas('message_templates', ['id' => $message['id'], 'status' => 'archived', 'media_template_id' => null, 'include_media' => false]);
+        Storage::disk('local')->assertMissing($updated['background_image_path']);
+    }
+
     private function fixture(string $name = 'AL Barber Shop'): array
     {
         $suffix = Str::slug($name).'-'.Str::lower(Str::random(5));

@@ -13,6 +13,7 @@ use App\Domain\Tenancy\Services\PlanEntitlements;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -107,6 +108,7 @@ class MediaController extends Controller
         $template = MediaTemplate::where('business_id', $request->attributes->get('business')->id)->findOrFail($mediaTemplate);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120', Rule::unique('media_templates', 'name')->where('business_id', $template->business_id)->ignore($template->id)],
+            'background' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480', 'dimensions:min_width=320,min_height=180,max_width=4096,max_height=4096'],
             'text' => ['required', 'string', 'max:120'],
             'color' => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'color_mode' => ['required', Rule::in(['solid', 'gradient'])],
@@ -132,7 +134,18 @@ class MediaController extends Controller
             'bottom_left_y' => ['required', 'numeric', 'min:0', 'max:100'],
         ]);
         $this->validateArea($data);
+        $background = [];
+        $oldPath = $template->background_image_path;
+        if ($request->hasFile('background')) {
+            $file = $request->file('background');
+            [$width, $height] = getimagesize($file->getRealPath());
+            $background = [
+                'background_image_path' => $file->store('businesses/'.$template->business_id.'/media-templates', $template->disk),
+                'width' => $width, 'height' => $height,
+            ];
+        }
         $template->update([
+            ...$background,
             'name' => $data['name'],
             'text_configuration' => [
                 'text' => $data['text'], 'color' => $data['color'], 'color_mode' => $data['color_mode'],
@@ -148,7 +161,10 @@ class MediaController extends Controller
                 'confidence' => 'manual',
             ],
         ]);
-        $auditor->record($request, 'media_template.updated', $template, ['name' => $template->name]);
+        if ($background) {
+            Storage::disk($template->disk)->delete($oldPath);
+        }
+        $auditor->record($request, 'media_template.updated', $template, ['name' => $template->name, 'background_replaced' => (bool) $background]);
 
         return response()->json(['data' => $template]);
     }
@@ -156,10 +172,13 @@ class MediaController extends Controller
     public function destroy(Request $request, string $mediaTemplate, Auditor $auditor): JsonResponse
     {
         $template = MediaTemplate::where('business_id', $request->attributes->get('business')->id)->findOrFail($mediaTemplate);
-        abort_if($template->messageTemplates()->exists(), 422, 'This media is selected by a message template. Remove it there first.');
-        $auditor->record($request, 'media_template.deleted', $template, ['name' => $template->name]);
+        abort_if($template->messageTemplates()->where('status', '!=', 'archived')->exists(), 422, 'This media is selected by a message template. Remove it there first.');
+        DB::transaction(function () use ($template, $request, $auditor): void {
+            $template->messageTemplates()->where('status', 'archived')->update(['media_template_id' => null, 'include_media' => false]);
+            $auditor->record($request, 'media_template.deleted', $template, ['name' => $template->name]);
+            $template->delete();
+        });
         Storage::disk($template->disk)->delete($template->background_image_path);
-        $template->delete();
 
         return response()->json([], 204);
     }
