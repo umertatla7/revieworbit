@@ -22,8 +22,14 @@ Health endpoints distinguish liveness from readiness (database, Redis, and stora
 
 ## Single-VPS staging deployment
 
-The staging VPS uses `docker-compose.production.yml` with Caddy terminating TLS for `app.revieworbit.tech` and `api.revieworbit.tech`. PostgreSQL, Redis, pgAdmin, and Mailpit are never published on a public interface. PostgreSQL is bound to `127.0.0.1:5432`; pgAdmin is bound to `127.0.0.1:5050`; Mailpit is bound to `127.0.0.1:8025`. Administrators reach these services only through an SSH tunnel.
+The VPS uses `docker-compose.production.yml` with Caddy terminating TLS for `app.buckeyerank.com` and `api.buckeyerank.com`. PostgreSQL, Redis, pgAdmin, and Mailpit are never published on a public interface. PostgreSQL is bound to `127.0.0.1:5432`; pgAdmin is bound to `127.0.0.1:5050`; Mailpit is bound to `127.0.0.1:8025`. Administrators reach these services only through an SSH tunnel.
 
 Copy `.env.production.example` to `.env.production`, generate unique values for every `CHANGE_ME`, and keep `.env.production` mode `600`. All Compose commands must include both `--env-file .env.production` and `-f docker-compose.production.yml`. Messaging stays on the fake provider and Square stays in sandbox until credentials, consent controls, callbacks, and provider configuration have been reviewed.
 
-Deploy from `/opt/revieworbit` with a fast-forward-only Git pull, build the immutable images, run `php artisan migrate --force` as a one-off container, then start the services. The Nginx configuration uses Docker's embedded DNS resolver so a recreated PHP-FPM container does not leave Nginx pinned to a stale container address. Verify both `/health/live` and an application API request after every container replacement. Never run `db:seed` unless a staging password has been deliberately supplied. Toast settings are entered after deployment in Admin > Toast POS setup; register the two displayed HTTPS webhook URLs with Toast and keep `TOAST_ENVIRONMENT=sandbox` until certification. Production-scale deployment must move PostgreSQL, Redis, and private media to managed services and add encrypted off-server backups before customer traffic.
+Deploy from `/opt/breviews` with a fast-forward-only Git pull, build the immutable images, run `php artisan migrate --force` as a one-off container, then start the services. Never run an unqualified `docker compose` command on this host because the base file is for local development. Use this production-qualified form for every Compose operation:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.production.yml <command>
+```
+
+The Nginx configuration uses Docker's embedded DNS resolver so a recreated PHP-FPM container does not leave Nginx pinned to a stale container address. Verify both `/health/live` and an application API request after every container replacement. Never run `db:seed` unless a staging password has been deliberately supplied. Toast settings are entered after deployment in Admin > Toast POS setup; register the two displayed HTTPS webhook URLs with Toast and keep `TOAST_ENVIRONMENT=sandbox` until certification. Production-scale deployment must move PostgreSQL, Redis, and private media to managed services and add encrypted off-server backups before customer traffic.
