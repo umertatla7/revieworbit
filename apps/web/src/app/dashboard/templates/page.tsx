@@ -59,6 +59,7 @@ type Location = {
   }[];
 };
 type Business = {
+  name: string;
   locations: Location[];
   entitlements: {
     plan_name: string;
@@ -85,6 +86,14 @@ type MessagingPlatform = {
   provider: string;
 };
 type MessagingConfiguration = { status: string; sms_enabled: boolean };
+type TestDelivery = {
+  id: string;
+  status: string;
+  to_last_four: string;
+  provider_error_code?: string;
+  failure_message?: string;
+  is_test?: boolean;
+};
 const defaultBody =
   "Hi {{customer_first_name}}, thank you for visiting {{business_name}}. We would appreciate your honest feedback. Share your experience here: {{review_link}}";
 
@@ -107,6 +116,7 @@ export default function TemplatesPage() {
     useState<MessagingConfiguration | null>(null);
   const [testTemplate, setTestTemplate] = useState<Template | null>(null);
   const [testMessage, setTestMessage] = useState("");
+  const [testDelivery, setTestDelivery] = useState<TestDelivery | null>(null);
   const [busy, setBusy] = useState(false);
   const [business, setBusiness] = useState<Business | null>(null);
   const [locationId, setLocationId] = useState("");
@@ -270,7 +280,7 @@ export default function TemplatesPage() {
     setTestMessage("");
     try {
       const result = await api<{
-        data: { status: string; recipient_last_four: string };
+        data: { id: string; status: string; recipient_last_four: string };
       }>(
         `/api/v1/templates/${testTemplate.id}/test`,
         {
@@ -283,10 +293,17 @@ export default function TemplatesPage() {
         },
         true,
       );
+      const delivery = {
+        id: result.data.id,
+        status: result.data.status,
+        to_last_four: result.data.recipient_last_four,
+        is_test: true,
+      };
+      setTestDelivery(delivery);
       setMessage(
-        `Test message ${result.data.status} for the consented recipient ending in ${result.data.recipient_last_four}.`,
+        `Test submitted to Twilio for the consented recipient ending in ${result.data.recipient_last_four}.`,
       );
-      setTestTemplate(null);
+      void watchTestDelivery(result.data.id);
     } catch (error) {
       setTestMessage(
         error instanceof Error
@@ -295,6 +312,42 @@ export default function TemplatesPage() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function watchTestDelivery(deliveryId: string) {
+    const terminalStatuses = new Set([
+      "delivered",
+      "failed",
+      "undelivered",
+      "canceled",
+    ]);
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      try {
+        const result = await api<{ data: TestDelivery[] }>(
+          "/api/v1/message-deliveries",
+          {},
+          true,
+        );
+        const delivery = result.data.find(
+          (item) => item.id === deliveryId && item.is_test,
+        );
+        if (!delivery) continue;
+        setTestDelivery((current) =>
+          current?.id === deliveryId ? delivery : current,
+        );
+        if (terminalStatuses.has(delivery.status.toLowerCase())) {
+          setMessage(
+            delivery.status.toLowerCase() === "delivered"
+              ? `Test delivered to the recipient ending in ${delivery.to_last_four}.`
+              : `Test delivery ${delivery.status} for the recipient ending in ${delivery.to_last_four}.`,
+          );
+          return;
+        }
+      } catch {
+        return;
+      }
     }
   }
 
@@ -602,6 +655,7 @@ export default function TemplatesPage() {
                         className="rounded-lg border border-forest/20 px-3 py-2 text-xs font-semibold text-forest"
                         onClick={() => {
                           setTestMessage("");
+                          setTestDelivery(null);
                           setTestTemplate(template);
                         }}
                       >
@@ -631,7 +685,12 @@ export default function TemplatesPage() {
           configuration={configuration}
           busy={busy}
           message={testMessage}
-          onClose={() => setTestTemplate(null)}
+          delivery={testDelivery}
+          businessName={business?.name ?? "Your business"}
+          onClose={() => {
+            setTestTemplate(null);
+            setTestDelivery(null);
+          }}
           onSend={sendTest}
         />
       )}
@@ -646,6 +705,8 @@ function TestMessageDialog({
   configuration,
   busy,
   message,
+  delivery,
+  businessName,
   onClose,
   onSend,
 }: {
@@ -655,6 +716,8 @@ function TestMessageDialog({
   configuration: MessagingConfiguration | null;
   busy: boolean;
   message: string;
+  delivery: TestDelivery | null;
+  businessName: string;
   onClose: () => void;
   onSend: (data: FormData) => void;
 }) {
@@ -705,9 +768,11 @@ function TestMessageDialog({
             <span className="mt-1 block">
               B Review only allows an existing customer with recorded{" "}
               {channel.toUpperCase()} consent and no active suppression. The
-              message is prefixed as a test and audited.
+              message is clearly identified as a test from {businessName} via
+              B Review and is audited.
             </span>
           </div>
+          {delivery && <TestDeliveryStatus delivery={delivery} />}
           {!ready && (
             <p className="rounded-xl bg-red-50 p-4 text-xs leading-5 text-red-800">
               Twilio and this business’s {channel.toUpperCase()} configuration
@@ -729,6 +794,7 @@ function TestMessageDialog({
               name="customer_id"
               required
               defaultValue=""
+              disabled={Boolean(delivery)}
             >
               <option value="" disabled>
                 Select a customer
@@ -754,6 +820,7 @@ function TestMessageDialog({
                 type="checkbox"
                 name="trial_recipient_verified"
                 required
+                disabled={Boolean(delivery)}
               />
               <span>
                 <strong className="block">Verified in Twilio Trial</strong>
@@ -770,17 +837,55 @@ function TestMessageDialog({
               className="rounded-lg border border-ink/10 px-4 py-2.5 text-sm font-semibold"
               onClick={onClose}
             >
-              Cancel
+              {delivery ? "Close" : "Cancel"}
             </button>
-            <button
-              className="button-primary"
-              disabled={busy || !ready || eligible.length === 0}
-            >
-              {busy ? "Sending…" : "Send real test"}
-            </button>
+            {!delivery && (
+              <button
+                className="button-primary"
+                disabled={busy || !ready || eligible.length === 0}
+              >
+                {busy ? "Submitting to Twilio…" : "Send real test"}
+              </button>
+            )}
           </footer>
         </form>
       </section>
+    </div>
+  );
+}
+
+function TestDeliveryStatus({ delivery }: { delivery: TestDelivery }) {
+  const status = delivery.status.toLowerCase();
+  const delivered = status === "delivered";
+  const failed = ["failed", "undelivered", "canceled"].includes(status);
+  const title = delivered
+    ? "Delivered to the phone"
+    : failed
+      ? "Delivery failed"
+      : status === "sent"
+        ? "Sent to the mobile carrier"
+        : "Accepted by Twilio";
+  const detail = delivered
+    ? `Twilio confirmed delivery to the recipient ending in ${delivery.to_last_four}.`
+    : failed
+      ? delivery.failure_message ||
+        `Twilio reported ${delivery.status}${delivery.provider_error_code ? ` (error ${delivery.provider_error_code})` : ""}.`
+      : `Current status: ${delivery.status}. Waiting for Twilio's delivery callback for the recipient ending in ${delivery.to_last_four}.`;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`rounded-xl border p-4 text-sm ${
+        delivered
+          ? "border-green-200 bg-green-50 text-green-900"
+          : failed
+            ? "border-red-200 bg-red-50 text-red-900"
+            : "border-blue-200 bg-blue-50 text-blue-900"
+      }`}
+    >
+      <strong className="block">{title}</strong>
+      <span className="mt-1 block text-xs leading-5">{detail}</span>
     </div>
   );
 }

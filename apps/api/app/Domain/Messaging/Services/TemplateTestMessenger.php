@@ -64,13 +64,15 @@ class TemplateTestMessenger
             throw ValidationException::withMessages(['template' => ['An approved Twilio Content Template SID is required for WhatsApp.']]);
         }
 
-        $template->loadMissing(['business.locations', 'mediaTemplate']);
-        $location = $template->business->locations->first();
-        $testLink = rtrim(config('services.frontend.url'), '/').'/dashboard/templates?test=1';
-        $body = '[B Review test] '.$this->renderer->render($template->body, [
+        $template->loadMissing(['business.locations', 'location', 'reviewDestination', 'mediaTemplate']);
+        $location = $template->location ?? $template->business->locations->first();
+        $testLink = $template->reviewDestination?->url
+            ?? rtrim(config('services.twilio.tracking_base_url'), '/').'/r/example';
+        $businessName = trim((string) $template->business->name) ?: 'Your business';
+        $body = '['.$businessName.' test via B Review] '.$this->renderer->render($template->body, [
             'customer_first_name' => $customer->first_name,
             'customer_last_name' => $customer->last_name,
-            'business_name' => $template->business->name,
+            'business_name' => $businessName,
             'location_name' => $location?->name ?? 'Test location',
             'review_link' => $testLink,
             'employee_name' => 'Test team member',
@@ -114,7 +116,7 @@ class TemplateTestMessenger
                 'to' => $customer->phone_e164,
                 'body' => $body,
                 'content_sid' => $template->provider_template_sid,
-                'content_variables' => ['1' => $customer->first_name, '2' => $template->business->name, '3' => $testLink],
+                'content_variables' => ['1' => $customer->first_name, '2' => $businessName, '3' => $testLink],
                 'media_url' => $mediaUrl,
             ]);
             $delivery->update([

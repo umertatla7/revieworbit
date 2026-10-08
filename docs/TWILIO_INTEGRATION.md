@@ -69,7 +69,7 @@ Trial mode is a temporary exception to the production subaccount architecture:
 4. Add the tester as a customer, record real SMS consent, and verify that exact phone number in the Twilio Console.
 5. In **Message templates**, select **Send test message**, choose the consented tester, and confirm the Twilio Trial verification.
 
-Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in delivery history, prefixes SMS text with `[ReviewOrbit test]`, and never creates a review-click record. Trial restrictions can still cause Twilio to reject custom content or unverified destinations; the rejection code is shown without exposing credentials.
+Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in delivery history, and prefixes SMS text with the tenant identity followed by `test via B Review`. The selected review destination is used directly, so a test click is not counted as a customer **Review link clicked** event. The test dialog distinguishes Twilio acceptance, carrier handoff, confirmed delivery, and failure; trial restrictions can still cause Twilio to reject custom content or unverified destinations, and the rejection code is shown without exposing credentials.
 
 ### Operational visibility
 

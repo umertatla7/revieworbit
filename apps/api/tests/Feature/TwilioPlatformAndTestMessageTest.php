@@ -10,6 +10,8 @@ use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Enums\PlatformRole;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Tenancy\Models\BusinessUser;
+use App\Domain\Tenancy\Models\Location;
+use App\Domain\Tenancy\Models\LocationReviewDestination;
 use App\Domain\Tenancy\Models\PlatformUserRole;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -136,7 +138,9 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             ->assertJsonPath('data.0.status', 'queued')
             ->assertJsonPath('data.0.to_last_four', '0123');
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/Messages.json')
-            && str_starts_with((string) $request['Body'], '[B Review test]')
+            && str_starts_with((string) $request['Body'], '[Business A test via B Review]')
+            && str_contains((string) $request['Body'], 'https://www.google.com/maps?cid=123')
+            && ! str_contains((string) $request['Body'], '/dashboard/templates')
             && $request['To'] === $customerA->phone_e164);
     }
 
@@ -221,6 +225,20 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             'default_timezone' => 'America/New_York',
         ]);
         BusinessUser::create(['business_id' => $business->id, 'user_id' => $owner->id, 'role' => BusinessRole::Owner]);
+        $location = Location::create([
+            'business_id' => $business->id,
+            'name' => 'Main location',
+            'timezone' => 'America/New_York',
+            'status' => 'active',
+        ]);
+        $destination = LocationReviewDestination::create([
+            'business_id' => $business->id,
+            'location_id' => $location->id,
+            'provider' => 'google',
+            'url' => 'https://www.google.com/maps?cid=123',
+            'status' => 'active',
+            'is_primary' => true,
+        ]);
         $customer = Customer::create([
             'business_id' => $business->id,
             'first_name' => 'Test',
@@ -238,6 +256,8 @@ class TwilioPlatformAndTestMessageTest extends TestCase
         }
         $template = MessageTemplate::create([
             'business_id' => $business->id,
+            'location_id' => $location->id,
+            'review_destination_id' => $destination->id,
             'name' => 'Review test',
             'channel' => 'sms',
             'body' => 'Hi {{customer_first_name}}, thank you for visiting {{business_name}}: {{review_link}}',
