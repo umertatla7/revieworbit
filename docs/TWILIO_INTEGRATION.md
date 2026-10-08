@@ -133,6 +133,7 @@ Production should supervise both processes and restart them on failure. The sche
 
 - Delivery callbacks update queued, sent, delivered, failed, or undelivered state.
 - STOP-family replies create a channel-specific suppression; START/UNSTOP releases it and records provider evidence.
+- Outgoing SMS, MMS text, previews, tests, and manual resends include the tenant business name and `Reply STOP to unsubscribe.` when missing from the template. The final body is used for cost estimates and the encrypted history snapshot. STOP cancels unsent scheduled messages for the matching contact and removes them from eligible sending audiences; the contact and delivery history remain available for audit. Dashboard totals include sent/delivered production and test messages, with pending traffic counted separately.
 - Operational views store and display only a phone hash and the final four digits.
 - The tracking endpoint records **Review link clicked** and redirects to Google. It never claims a review was submitted.
 - Raw credentials, authorization headers, full phone numbers, and Twilio payload PII must not be logged.

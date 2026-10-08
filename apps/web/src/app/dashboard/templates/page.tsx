@@ -503,6 +503,7 @@ export default function TemplatesPage() {
               value={body}
               onChange={(event) => void previewBody(event.target.value)}
             />
+            <span className="mt-2 block text-xs font-normal text-ink/50">Your business name and “Reply STOP to unsubscribe” are included automatically if missing. The preview shows the final SMS.</span>
           </label>
           <div className="flex flex-wrap gap-2">
             {[

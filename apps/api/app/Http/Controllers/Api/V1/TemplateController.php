@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Media\Models\MediaTemplate;
+use App\Domain\Messaging\Services\SmsMessageFormatter;
 use App\Domain\Messaging\Services\TemplateTestMessenger;
 use App\Domain\Templates\Models\MediaAsset;
 use App\Domain\Templates\Models\MessageTemplate;
@@ -61,7 +62,7 @@ class TemplateController extends Controller
         return response()->json(['data' => $model->fresh('mediaAssets')]);
     }
 
-    public function preview(Request $request, TemplateRenderer $renderer): JsonResponse
+    public function preview(Request $request, TemplateRenderer $renderer, SmsMessageFormatter $smsFormatter): JsonResponse
     {
         $data = $request->validate([
             'body' => ['required', 'string', 'max:1600'],
@@ -80,6 +81,8 @@ class TemplateController extends Controller
             'employee_name' => 'Alex',
             'visit_date' => 'August 5, 2026',
         ]);
+
+        $message = $smsFormatter->format($message, $business->name);
 
         return response()->json(['data' => ['message' => $message, 'estimate' => $renderer->estimate($message), 'variables' => TemplateRenderer::VARIABLES]]);
     }

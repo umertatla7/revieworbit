@@ -23,6 +23,7 @@ class MessagingManager
         private readonly PersonalizedMediaRenderer $mediaRenderer,
         private readonly MessageCostEstimator $costEstimator,
         private readonly TrialMessageLimiter $trialLimiter,
+        private readonly SmsMessageFormatter $smsFormatter,
     ) {}
 
     public function send(AutomationDispatch $dispatch): MessageDelivery
@@ -95,6 +96,9 @@ class MessagingManager
                 'visit_date' => ($visit?->completed_at ?? $dispatch->scheduled_for ?? now())->setTimezone($location->timezone)->format('F j, Y'),
             ];
             $body = $this->renderer->render($template->body, $values);
+            if ($channel === 'sms') {
+                $body = $this->smsFormatter->format($body, $business->name);
+            }
             $cost = $this->costEstimator->estimate($business, $channel, $body, (bool) $template->include_media);
             if ($channel === 'whatsapp' && ! $template->provider_template_sid) {
                 throw new RuntimeException('An approved Twilio Content Template SID is required for WhatsApp.');

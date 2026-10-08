@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
+use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\MessagingConfiguration;
@@ -86,17 +87,22 @@ class TwilioWebhookController extends Controller
 
         $from = $this->phone((string) $request->input('From'));
         $channel = str_starts_with((string) $request->input('From'), 'whatsapp:') ? 'whatsapp' : 'sms';
-        $type = strtoupper((string) ($request->input('OptOutType') ?: $request->input('Body')));
+        $type = strtoupper(trim((string) ($request->input('OptOutType') ?: $request->input('Body'))));
         foreach ($configurations as $configuration) {
             $customer = Customer::where('business_id', $configuration->business_id)->where('phone_hash', hash('sha256', $from))->first();
             if (! $customer) {
                 continue;
             }
-            if (in_array($type, ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'], true)) {
+            if (in_array($type, ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT'], true)) {
                 $suppression = $customer->suppressions()->firstOrCreate(
                     ['business_id' => $configuration->business_id, 'channel' => $channel, 'released_at' => null],
                     ['phone_e164' => $from, 'reason' => 'opt_out', 'source' => 'twilio', 'suppressed_at' => now()],
                 );
+                AutomationDispatch::where('business_id', $configuration->business_id)
+                    ->where('decision', 'scheduled')->whereDoesntHave('delivery')
+                    ->where(fn ($query) => $query->where('customer_id', $customer->id)
+                        ->orWhereHas('visit', fn ($visit) => $visit->where('customer_id', $customer->id)))
+                    ->update(['decision' => 'cancelled', 'reason_code' => 'customer_opted_out']);
                 $auditor->record($request, 'messaging.opt_out.received', $suppression, ['channel' => $channel]);
             } elseif (in_array($type, ['START', 'UNSTOP'], true)) {
                 $customer->suppressions()->where('channel', $channel)->whereNull('released_at')->update(['released_at' => now()]);

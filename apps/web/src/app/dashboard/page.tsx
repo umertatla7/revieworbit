@@ -36,6 +36,8 @@ type Customer = {
 type ReviewMeta = {
   total: number;
   messages_sent: number;
+  test_messages_sent?: number;
+  messages_pending?: number;
   links_clicked: number;
   click_rate: number;
 };
@@ -60,7 +62,7 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       api<{ data: Business }>("/api/v1/business", {}, true),
       api<{ data: Customer[]; meta: { total: number } }>(
         "/api/v1/customers",
@@ -89,13 +91,17 @@ export default function DashboardPage() {
           messagingResult,
           posResult,
         ]) => {
-          setBusiness(businessResult.data);
-          setCustomers(customerResult.data.slice(0, 5));
-          setCustomerTotal(customerResult.meta.total);
-          setVisits(visitResult.meta.total);
-          setReview(reviewResult.meta);
-          setMessaging(messagingResult.data);
-          setPosStatus(posResult.data[0]?.status ?? null);
+          if (businessResult.status === "fulfilled") setBusiness(businessResult.value.data);
+          if (customerResult.status === "fulfilled") {
+            setCustomers(customerResult.value.data.slice(0, 5));
+            setCustomerTotal(customerResult.value.meta.total);
+          }
+          if (visitResult.status === "fulfilled") setVisits(visitResult.value.meta.total);
+          if (reviewResult.status === "fulfilled") setReview(reviewResult.value.meta);
+          if (messagingResult.status === "fulfilled") setMessaging(messagingResult.value.data);
+          if (posResult.status === "fulfilled") setPosStatus(posResult.value.data[0]?.status ?? null);
+          const failure = [businessResult, customerResult, visitResult, reviewResult, messagingResult, posResult].find((result) => result.status === "rejected");
+          if (failure?.status === "rejected") setMessage(failure.reason instanceof Error ? failure.reason.message : "Some dashboard data could not be loaded.");
         },
       )
       .catch((error: Error) => setMessage(error.message));
@@ -149,9 +155,9 @@ export default function DashboardPage() {
           detail="Manual and POS visits"
         />
         <Metric
-          label="Messages sent"
+          label="Total messages sent"
           value={review.messages_sent}
-          detail="Follow-up messages are included"
+          detail={`${review.test_messages_sent ?? 0} tests included · ${review.messages_pending ?? 0} pending`}
         />
         <Metric
           label="Review link clicked"

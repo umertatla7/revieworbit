@@ -11,8 +11,10 @@ use App\Domain\Messaging\Jobs\SendAutomationDispatch;
 use App\Domain\Messaging\Models\MessagingConfiguration;
 use App\Domain\Messaging\Models\PlatformTwilioSetting;
 use App\Domain\Messaging\Models\ReviewLink;
+use App\Domain\Messaging\Models\TestMessageDelivery;
 use App\Domain\Messaging\Services\DueMessageDispatcher;
 use App\Domain\Messaging\Services\MessagingManager;
+use App\Domain\Messaging\Services\SmsMessageFormatter;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Enums\BusinessRole;
 use App\Domain\Tenancy\Models\Business;
@@ -91,6 +93,41 @@ class MessagingTest extends TestCase
         $sameDelivery = app(MessagingManager::class)->send($dispatch);
         $this->assertSame($delivery->id, $sameDelivery->id);
         $this->assertDatabaseCount('message_deliveries', 1);
+    }
+
+    public function test_sms_always_identifies_the_business_and_includes_stop_in_the_stored_body(): void
+    {
+        [, $business, , , $template, , $dispatch] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $template->update(['body' => 'Hi {{customer_first_name}}, share your honest feedback: {{review_link}}']);
+        $delivery = app(MessagingManager::class)->send($dispatch);
+        $this->assertStringStartsWith($business->name.': Hi ', $delivery->body_snapshot);
+        $this->assertStringEndsWith('Reply STOP to unsubscribe.', $delivery->body_snapshot);
+        $formatter = app(SmsMessageFormatter::class);
+        $this->assertSame($delivery->body_snapshot, $formatter->format($delivery->body_snapshot, $business->name));
+    }
+
+    public function test_message_totals_include_tests_and_exclude_pending_failed_and_other_tenants(): void
+    {
+        [$owner, $business, , $customer, $template, , $dispatch] = $this->fixture();
+        $this->configuration($business, sms: true);
+        app(MessagingManager::class)->send($dispatch);
+        foreach (['delivered', 'queued', 'failed'] as $status) {
+            TestMessageDelivery::create([
+                'business_id' => $business->id, 'customer_id' => $customer->id,
+                'message_template_id' => $template->id, 'requested_by_user_id' => $owner->id,
+                'channel' => 'sms', 'provider' => 'twilio', 'status' => $status,
+                'to_hash' => $customer->phone_hash, 'to_last_four' => '0123',
+            ]);
+        }
+        [, $otherBusiness, , , , , $otherDispatch] = $this->fixture('Other Business');
+        $this->configuration($otherBusiness, sms: true);
+        app(MessagingManager::class)->send($otherDispatch);
+        $this->actingAs($owner)->getJson('/api/v1/review-links', ['X-Business-ID' => $business->id])
+            ->assertOk()->assertJsonPath('meta.messages_sent', 2)
+            ->assertJsonPath('meta.production_messages_sent', 1)
+            ->assertJsonPath('meta.test_messages_sent', 1)
+            ->assertJsonPath('meta.messages_pending', 1);
     }
 
     public function test_follow_up_is_cancelled_when_an_earlier_review_link_was_clicked(): void
@@ -239,8 +276,8 @@ class MessagingTest extends TestCase
 
     public function test_stop_reply_on_shared_sender_suppresses_matching_customer_in_every_shared_workspace(): void
     {
-        [, $businessA] = $this->fixture('Shared A');
-        [, $businessB] = $this->fixture('Shared B');
+        [, $businessA, , $customerA, , $ruleA, $dispatchA] = $this->fixture('Shared A');
+        [, $businessB, , , , , $dispatchB] = $this->fixture('Shared B');
         $serviceSid = 'MG'.str_repeat('d', 32);
         PlatformTwilioSetting::create([
             'account_sid' => 'AC'.str_repeat('c', 32),
@@ -276,6 +313,16 @@ class MessagingTest extends TestCase
 
         $this->assertDatabaseHas('suppression_entries', ['business_id' => $businessA->id, 'channel' => 'sms', 'released_at' => null]);
         $this->assertDatabaseHas('suppression_entries', ['business_id' => $businessB->id, 'channel' => 'sms', 'released_at' => null]);
+        $this->assertSame('cancelled', $dispatchA->fresh()->decision);
+        $this->assertSame('cancelled', $dispatchB->fresh()->decision);
+        $this->assertSame('customer_opted_out', $dispatchA->fresh()->reason_code);
+        $template = $ruleA->messageTemplate;
+        $template->update(['location_id' => $ruleA->location_id]);
+        $ruleA->update(['trigger_type' => 'contacts.manual']);
+        $audience = app(ContactAutomationLauncher::class)->preview($ruleA->fresh());
+        $this->assertSame(0, $audience['eligible_contacts']);
+        $this->assertSame(1, $audience['skipped_summary']['suppressed']);
+        $this->assertDatabaseHas('customers', ['id' => $customerA->id]);
     }
 
     public function test_review_link_records_a_click_and_redirects_without_claiming_a_review(): void

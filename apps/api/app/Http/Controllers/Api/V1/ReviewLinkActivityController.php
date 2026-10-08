@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
+use App\Domain\Messaging\Models\TestMessageDelivery;
 use App\Domain\Messaging\Services\ManualReviewMessageSender;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -22,13 +23,19 @@ class ReviewLinkActivityController extends Controller
             $query->where('location_id', $request->string('location_id'));
         }
         $links = $query->paginate(50);
-        $sent = MessageDelivery::where('business_id', $businessId)->whereIn('status', ['queued', 'sent', 'delivered'])->count();
+        $sent = MessageDelivery::where('business_id', $businessId)->whereIn('status', ['sent', 'delivered'])->count();
+        $testSent = TestMessageDelivery::where('business_id', $businessId)->whereIn('status', ['sent', 'delivered'])->count();
+        $pending = MessageDelivery::where('business_id', $businessId)->whereIn('status', ['pending', 'accepted', 'queued', 'sending'])->count()
+            + TestMessageDelivery::where('business_id', $businessId)->whereIn('status', ['pending', 'accepted', 'queued', 'sending'])->count();
         $clicked = ReviewLink::where('business_id', $businessId)->whereNotNull('first_clicked_at')->count();
         $total = ReviewLink::where('business_id', $businessId)->count();
 
         return response()->json(['data' => $links->items(), 'meta' => [
             'total' => $total,
-            'messages_sent' => $sent,
+            'messages_sent' => $sent + $testSent,
+            'production_messages_sent' => $sent,
+            'test_messages_sent' => $testSent,
+            'messages_pending' => $pending,
             'links_clicked' => $clicked,
             'click_rate' => $total ? round(($clicked / $total) * 100, 1) : 0,
         ]]);

@@ -23,6 +23,7 @@ class TemplateTestMessenger
         private readonly TwilioCredentials $credentials,
         private readonly TwilioConnectionResolver $connections,
         private readonly TrialMessageLimiter $trialLimiter,
+        private readonly SmsMessageFormatter $smsFormatter,
     ) {}
 
     public function send(MessageTemplate $template, Customer $customer, string $requestedByUserId, bool $trialRecipientVerified): TestMessageDelivery
@@ -78,6 +79,10 @@ class TemplateTestMessenger
             'employee_name' => 'Test team member',
             'visit_date' => now()->setTimezone($location?->timezone ?? 'UTC')->format('F j, Y'),
         ]);
+
+        if ($channel === 'sms') {
+            $body = $this->smsFormatter->format($body, $businessName);
+        }
 
         $mediaUrl = null;
         if ($channel === 'sms' && $template->include_media) {

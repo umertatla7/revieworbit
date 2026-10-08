@@ -705,7 +705,7 @@ function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule;
           <div className="mt-5 rounded-xl bg-paper p-4"><p className="text-xs font-semibold">Skipped contacts</p><div className="mt-2 space-y-1 text-xs text-ink/55">{Object.entries(audience.skipped_summary).map(([reason, count]) => <div key={reason} className="flex justify-between"><span>{labels[reason] ?? reason}</span><strong>{count}</strong></div>)}</div></div>
         )}
         <p className="mt-5 rounded-xl border border-forest/15 bg-mint/15 p-4 text-xs leading-5 text-ink/65">
-          Only active contacts with a valid SMS consent record are included. Suppressed contacts, confirmed reviewers, recently messaged contacts, and contacts already scheduled are excluded. The exact saved template is sent; no “test” or “via B Review” text is added.
+          Only active contacts with valid SMS consent are included. Opted-out contacts, confirmed reviewers, recently messaged contacts, and contacts already scheduled are excluded. Messages include your business name and STOP instructions.
         </p>
         {audience.first_message_at && <p className="mt-3 text-xs text-ink/50">First messages queue immediately when you click Send. Twilio delivery status will appear in each customer’s message history. Follow-ups respect quiet hours.</p>}
         <div className="mt-6 flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || audience.eligible_contacts === 0} onClick={onLaunch}>{busy ? "Scheduling…" : `Send to ${audience.eligible_contacts} eligible contact${audience.eligible_contacts === 1 ? "" : "s"}`}</button></div>

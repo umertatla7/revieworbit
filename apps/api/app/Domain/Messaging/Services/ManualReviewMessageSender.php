@@ -18,6 +18,7 @@ class ManualReviewMessageSender
         private readonly TemplateRenderer $renderer,
         private readonly MessageCostEstimator $costEstimator,
         private readonly TrialMessageLimiter $trialLimiter,
+        private readonly SmsMessageFormatter $smsFormatter,
     ) {}
 
     public function send(ReviewLink $source, string $customBody, string $userId): MessageDelivery
@@ -62,6 +63,9 @@ class ManualReviewMessageSender
                 'employee_name' => '',
                 'visit_date' => ($source->visit?->completed_at ?? now())->setTimezone($source->location->timezone)->format('F j, Y'),
             ]);
+            if ($channel === 'sms') {
+                $body = $this->smsFormatter->format($body, $business->name);
+            }
             $cost = $this->costEstimator->estimate($business, $channel, $body);
 
             $delivery = MessageDelivery::create([

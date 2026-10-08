@@ -144,7 +144,7 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             && ! str_contains((string) $request['Body'], '/dashboard/templates')
             && $request['To'] === $customerA->phone_e164);
         $this->assertSame(
-            'Hi Test, thank you for visiting Business A: https://www.google.com/maps?cid=123',
+            "Hi Test, thank you for visiting Business A: https://www.google.com/maps?cid=123\nReply STOP to unsubscribe.",
             $customerA->testMessageDeliveries()->latest()->firstOrFail()->body_snapshot,
         );
     }
