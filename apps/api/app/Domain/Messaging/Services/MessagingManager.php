@@ -34,13 +34,30 @@ class MessagingManager
                 return $existing;
             }
 
-            $dispatch->loadMissing(['visit.business.messagingConfiguration', 'visit.customer.consents', 'visit.customer.suppressions', 'visit.location.reviewDestinations', 'rule.messageTemplate.reviewDestination', 'rule.followUps.messageTemplate.reviewDestination']);
+            $dispatch->loadMissing([
+                'customer.consents',
+                'customer.suppressions',
+                'rule.business.messagingConfiguration',
+                'rule.location.reviewDestinations',
+                'rule.messageTemplate.mediaTemplate',
+                'rule.messageTemplate.reviewDestination',
+                'rule.followUps.messageTemplate.mediaTemplate',
+                'rule.followUps.messageTemplate.reviewDestination',
+                'visit.business.messagingConfiguration',
+                'visit.customer.consents',
+                'visit.customer.suppressions',
+                'visit.location.reviewDestinations',
+            ]);
             abort_unless($dispatch->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now()), 422, 'This message is not due.');
             $visit = $dispatch->visit;
-            $customer = $visit->customer ?? throw new RuntimeException('The customer is missing.');
-            $this->costEstimator->assertCustomerAvailable($visit->business, $customer->id);
-            $this->trialLimiter->assertMaySend($visit->business);
-            $configuration = $visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
+            $business = $visit?->business ?? $dispatch->rule->business;
+            $customer = $visit?->customer ?? $dispatch->customer;
+            $location = $visit?->location ?? $dispatch->rule->location;
+            abort_unless($business && $customer && $location, 422, 'The automation is missing its business, customer, or location.');
+            abort_unless($customer->business_id === $business->id && $location->business_id === $business->id, 403, 'The automation context is invalid.');
+            $this->costEstimator->assertCustomerAvailable($business, $customer->id);
+            $this->trialLimiter->assertMaySend($business);
+            $configuration = $business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
             abort_unless($configuration->status === 'active', 422, 'Messaging is not active for this business.');
             $template = $this->template($dispatch);
             $channel = $template->channel === 'mms' ? 'sms' : $template->channel;
@@ -49,20 +66,20 @@ class MessagingManager
             abort_unless($consentChannel === 'sms' ? $configuration->sms_enabled : $configuration->whatsapp_enabled, 422, strtoupper($channel).' is not enabled.');
             abort_unless($this->hasConsent($customer, $consentChannel), 422, 'Valid '.$consentChannel.' consent is required.');
             abort_unless(! $this->suppressed($customer, $consentChannel), 422, 'The customer is suppressed for '.$consentChannel.'.');
-            $destination = $template->reviewDestination ?? $visit->location->reviewDestinations->firstWhere('is_primary', true) ?? $visit->location->reviewDestinations->first();
-            if ($destination && $destination->location_id !== $visit->location_id) {
-                $destination = $visit->location->reviewDestinations->firstWhere('is_primary', true) ?? $visit->location->reviewDestinations->first();
+            $destination = $template->reviewDestination ?? $location->reviewDestinations->firstWhere('is_primary', true) ?? $location->reviewDestinations->first();
+            if ($destination && $destination->location_id !== $location->id) {
+                $destination = $location->reviewDestinations->firstWhere('is_primary', true) ?? $location->reviewDestinations->first();
             }
-            $destinationUrl = $destination?->url ?? $visit->location->google_review_url;
-            abort_unless($destinationUrl && (! $destination || ($destination->business_id === $visit->business_id && $destination->location_id === $visit->location_id && $destination->status === 'active')), 422, 'The template review link must belong to this visit location and remain active.');
+            $destinationUrl = $destination?->url ?? $location->google_review_url;
+            abort_unless($destinationUrl && (! $destination || ($destination->business_id === $business->id && $destination->location_id === $location->id && $destination->status === 'active')), 422, 'The template review link must belong to this automation location and remain active.');
 
             $plainToken = Str::random(64);
             $link = ReviewLink::create([
-                'business_id' => $visit->business_id,
-                'location_id' => $visit->location_id,
+                'business_id' => $business->id,
+                'location_id' => $location->id,
                 'review_destination_id' => $destination?->id,
                 'customer_id' => $customer->id,
-                'visit_id' => $visit->id,
+                'visit_id' => $visit?->id,
                 'token_hash' => hash('sha256', $plainToken),
                 'destination_url' => $destinationUrl,
                 'expires_at' => now()->addYear(),
@@ -71,14 +88,14 @@ class MessagingManager
             $values = [
                 'customer_first_name' => $customer->first_name,
                 'customer_last_name' => $customer->last_name,
-                'business_name' => $visit->business->name,
-                'location_name' => $visit->location->name,
+                'business_name' => $business->name,
+                'location_name' => $location->name,
                 'review_link' => $reviewUrl,
                 'employee_name' => '',
-                'visit_date' => $visit->completed_at->setTimezone($visit->location->timezone)->format('F j, Y'),
+                'visit_date' => ($visit?->completed_at ?? $dispatch->scheduled_for ?? now())->setTimezone($location->timezone)->format('F j, Y'),
             ];
             $body = $this->renderer->render($template->body, $values);
-            $cost = $this->costEstimator->estimate($visit->business, $channel, $body, (bool) $template->include_media);
+            $cost = $this->costEstimator->estimate($business, $channel, $body, (bool) $template->include_media);
             if ($channel === 'whatsapp' && ! $template->provider_template_sid) {
                 throw new RuntimeException('An approved Twilio Content Template SID is required for WhatsApp.');
             }
@@ -89,10 +106,10 @@ class MessagingManager
                 abort_unless($template->media_template_id, 422, 'Select personalized media before sending an SMS with an image.');
                 $plainMediaToken = Str::random(64);
                 $generatedMedia = GeneratedMedia::create([
-                    'business_id' => $visit->business_id,
-                    'location_id' => $visit->location_id,
-                    'visit_id' => $visit->id,
-                    'delivery_type' => 'automation',
+                    'business_id' => $business->id,
+                    'location_id' => $location->id,
+                    'visit_id' => $visit?->id,
+                    'delivery_type' => $visit ? 'automation' : 'contact_campaign',
                     'customer_id' => $customer->id,
                     'media_template_id' => $template->media_template_id,
                     'disk' => $template->mediaTemplate->disk,
@@ -106,8 +123,11 @@ class MessagingManager
             $delivery = MessageDelivery::updateOrCreate(
                 ['automation_dispatch_id' => $dispatch->id],
                 [
-                    'business_id' => $visit->business_id,
+                    'business_id' => $business->id,
+                    'location_id' => $location->id,
                     'customer_id' => $customer->id,
+                    'visit_id' => $visit?->id,
+                    'delivery_type' => $visit ? 'automation' : 'contact_campaign',
                     'message_template_id' => $template->id,
                     'review_link_id' => $link->id,
                     'generated_media_id' => $generatedMedia?->id,
@@ -131,7 +151,7 @@ class MessagingManager
                     'to' => $customer->phone_e164,
                     'body' => $body,
                     'content_sid' => $template->provider_template_sid,
-                    'content_variables' => ['1' => $customer->first_name, '2' => $visit->business->name, '3' => $reviewUrl],
+                    'content_variables' => ['1' => $customer->first_name, '2' => $business->name, '3' => $reviewUrl],
                     'media_url' => $mediaUrl,
                 ]);
                 $delivery->update([

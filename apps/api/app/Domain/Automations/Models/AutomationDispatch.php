@@ -2,6 +2,7 @@
 
 namespace App\Domain\Automations\Models;
 
+use App\Domain\Customers\Models\Customer;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Visits\Models\Visit;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['business_id', 'visit_id', 'automation_rule_id', 'sequence_number', 'decision', 'reason_code', 'scheduled_for', 'decision_context'])]
+#[Fillable(['business_id', 'visit_id', 'automation_run_id', 'customer_id', 'automation_rule_id', 'sequence_number', 'decision', 'reason_code', 'scheduled_for', 'decision_context'])]
 class AutomationDispatch extends Model
 {
     use HasUlids;
@@ -18,6 +19,16 @@ class AutomationDispatch extends Model
     public function visit(): BelongsTo
     {
         return $this->belongsTo(Visit::class);
+    }
+
+    public function run(): BelongsTo
+    {
+        return $this->belongsTo(AutomationRun::class, 'automation_run_id');
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function rule(): BelongsTo

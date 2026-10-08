@@ -51,6 +51,10 @@ class AutomationEvaluator
 
     private function ineligibleReason(Visit $visit, AutomationRule $rule, CarbonImmutable $now): ?string
     {
+        if ($rule->trigger_type !== 'visit.completed') {
+            return 'trigger_mismatch';
+        }
+
         $businessStatus = $visit->business->status instanceof RecordStatus ? $visit->business->status->value : $visit->business->status;
         $locationStatus = $visit->location->status instanceof RecordStatus ? $visit->location->status->value : $visit->location->status;
         if ($businessStatus !== 'active') {

@@ -168,6 +168,8 @@ Route::prefix('api/v1')->group(function (): void {
 
                 Route::post('/automations', [AutomationController::class, 'store']);
                 Route::patch('/automations/{automation}', [AutomationController::class, 'update']);
+                Route::get('/automations/{automation}/audience', [AutomationController::class, 'audience']);
+                Route::post('/automations/{automation}/launch', [AutomationController::class, 'launch'])->middleware('throttle:3,1');
                 Route::post('/visits', [VisitController::class, 'store']);
                 Route::post('/review-links/{reviewLink}/resend', [ReviewLinkActivityController::class, 'resend'])->middleware('throttle:10,1');
                 Route::post('/pos-integrations', [PosIntegrationController::class, 'store']);

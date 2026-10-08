@@ -199,6 +199,24 @@ class MilestoneSixTest extends TestCase
         $this->assertDatabaseHas('customers', ['business_id' => $business->id, 'first_name' => 'Ava, Marie']);
     }
 
+    public function test_csv_import_records_sms_consent_only_for_rows_that_explicitly_include_it(): void
+    {
+        [$owner, $business] = $this->fixture();
+        $file = UploadedFile::fake()->createWithContent(
+            'customers.csv',
+            "first_name,phone,sms_consent,consent_source\nAva,+12025550188,yes,written\nNoah,+12025550189,no,\n"
+        );
+
+        $this->actingAs($owner)->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '0'], ['X-Business-ID' => $business->id])
+            ->assertAccepted()
+            ->assertJsonPath('data.created', 2);
+
+        $ava = Customer::where('business_id', $business->id)->where('first_name', 'Ava')->firstOrFail();
+        $noah = Customer::where('business_id', $business->id)->where('first_name', 'Noah')->firstOrFail();
+        $this->assertDatabaseHas('customer_consents', ['customer_id' => $ava->id, 'channel' => 'sms', 'status' => 'granted', 'source' => 'written']);
+        $this->assertDatabaseMissing('customer_consents', ['customer_id' => $noah->id]);
+    }
+
     public function test_personalized_media_is_private_and_queued(): void
     {
         Storage::fake('local');

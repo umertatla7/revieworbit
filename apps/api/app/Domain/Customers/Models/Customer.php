@@ -4,6 +4,7 @@ namespace App\Domain\Customers\Models;
 
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Messaging\Models\ReviewLink;
+use App\Domain\Messaging\Models\TestMessageDelivery;
 use App\Domain\Tenancy\Models\Business;
 use App\Domain\Visits\Models\Visit;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -57,6 +58,11 @@ class Customer extends Model
     public function messageDeliveries(): HasMany
     {
         return $this->hasMany(MessageDelivery::class);
+    }
+
+    public function testMessageDeliveries(): HasMany
+    {
+        return $this->hasMany(TestMessageDelivery::class);
     }
 
     protected function casts(): array

@@ -13,7 +13,7 @@ class DueMessageDispatcher
         AutomationDispatch::query()
             ->where('decision', 'scheduled')
             ->where('scheduled_for', '<=', now())
-            ->whereHas('visit.business.messagingConfiguration', fn ($query) => $query->where('status', 'active'))
+            ->whereHas('rule.business.messagingConfiguration', fn ($query) => $query->where('status', 'active'))
             ->whereDoesntHave('delivery')
             ->orderBy('scheduled_for')
             ->limit(500)

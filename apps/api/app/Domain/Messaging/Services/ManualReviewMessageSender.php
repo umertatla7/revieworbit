@@ -23,13 +23,15 @@ class ManualReviewMessageSender
     public function send(ReviewLink $source, string $customBody, string $userId): MessageDelivery
     {
         return DB::transaction(function () use ($source, $customBody, $userId): MessageDelivery {
-            $source->loadMissing(['customer.consents', 'customer.suppressions', 'visit.business.messagingConfiguration', 'location', 'deliveries.template']);
+            $source->loadMissing(['customer.consents', 'customer.suppressions', 'customer.business.messagingConfiguration', 'visit', 'location', 'deliveries.template']);
             $customer = $source->customer ?? throw new RuntimeException('The customer is no longer available.');
-            $this->costEstimator->assertCustomerAvailable($source->visit->business, $customer->id);
-            $this->trialLimiter->assertMaySend($source->visit->business);
+            $business = $customer->business;
+            abort_unless($business->id === $source->business_id && $source->location->business_id === $business->id, 403);
+            $this->costEstimator->assertCustomerAvailable($business, $customer->id);
+            $this->trialLimiter->assertMaySend($business);
             $original = $source->deliveries()->whereNotNull('message_template_id')->latest()->firstOrFail();
             $channel = $original->channel;
-            $configuration = $source->visit->business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
+            $configuration = $business->messagingConfiguration ?? throw new RuntimeException('Messaging is not configured.');
             abort_unless($configuration->status === 'active', 422, 'Messaging is not active for this business.');
             abort_unless($channel === 'sms' ? $configuration->sms_enabled : $configuration->whatsapp_enabled, 422, strtoupper($channel).' is not enabled.');
             $consent = $customer->consents->where('channel', $channel)->sortByDesc('recorded_at')->first();
@@ -54,13 +56,13 @@ class ManualReviewMessageSender
             $body = $this->renderer->render($customBody, [
                 'customer_first_name' => $customer->first_name,
                 'customer_last_name' => $customer->last_name,
-                'business_name' => $source->visit->business->name,
+                'business_name' => $business->name,
                 'location_name' => $source->location->name,
                 'review_link' => $trackingUrl,
                 'employee_name' => '',
-                'visit_date' => $source->visit->completed_at->setTimezone($source->location->timezone)->format('F j, Y'),
+                'visit_date' => ($source->visit?->completed_at ?? now())->setTimezone($source->location->timezone)->format('F j, Y'),
             ]);
-            $cost = $this->costEstimator->estimate($source->visit->business, $channel, $body);
+            $cost = $this->costEstimator->estimate($business, $channel, $body);
 
             $delivery = MessageDelivery::create([
                 'business_id' => $source->business_id,

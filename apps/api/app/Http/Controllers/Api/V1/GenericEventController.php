@@ -101,7 +101,7 @@ class GenericEventController extends Controller
                 ['location_id' => $location->id, 'customer_id' => $customer->id, 'external_payment_id' => $data['transaction']['external_id'], 'type' => 'payment', 'status' => 'completed', 'amount' => $data['transaction']['amount'] ?? null, 'currency' => strtoupper($data['transaction']['currency']), 'completed_at' => $data['transaction']['completed_at'], 'raw_metadata' => ['event_type' => $data['event_type']]]
             );
             $customer->update(['last_visit_at' => $visit->completed_at]);
-            $dispatches = AutomationRule::where('business_id', $business->id)->where('status', 'active')->where(fn ($query) => $query->whereNull('location_id')->orWhere('location_id', $location->id))->get()->map(fn (AutomationRule $rule) => $evaluator->evaluate($visit, $rule));
+            $dispatches = AutomationRule::where('business_id', $business->id)->where('trigger_type', 'visit.completed')->where('status', 'active')->where(fn ($query) => $query->whereNull('location_id')->orWhere('location_id', $location->id))->get()->map(fn (AutomationRule $rule) => $evaluator->evaluate($visit, $rule));
 
             return ['data' => ['visit_id' => $visit->id, 'created' => $visit->wasRecentlyCreated, 'automation_dispatches' => $dispatches->map->only(['id', 'decision', 'reason_code', 'scheduled_for'])]];
         });

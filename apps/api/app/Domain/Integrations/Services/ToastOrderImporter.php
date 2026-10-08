@@ -80,6 +80,7 @@ class ToastOrderImporter
             }
             if ($created) {
                 AutomationRule::where('business_id', $connection->business_id)
+                    ->where('trigger_type', 'visit.completed')
                     ->where('status', 'active')
                     ->where(fn ($query) => $query->whereNull('location_id')->orWhere('location_id', $connection->location_id))
                     ->get()->each(fn (AutomationRule $rule) => $this->evaluator->evaluate($visit, $rule));

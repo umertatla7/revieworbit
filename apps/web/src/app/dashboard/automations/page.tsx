@@ -22,6 +22,7 @@ type Rule = {
   id: string;
   name: string;
   status: string;
+  trigger_type: "visit.completed" | "contacts.manual";
   delay_minutes: number;
   frequency_limit_days: number;
   quiet_hours_start?: string;
@@ -31,6 +32,16 @@ type Rule = {
   message_template_id: string;
   message_template: Template;
   follow_ups: FollowUp[];
+  runs?: { id: string; status: string; scheduled_count: number; skipped_count: number; created_at: string }[];
+};
+type Audience = {
+  total_contacts: number;
+  eligible_contacts: number;
+  new_plan_customers: number;
+  customers_remaining_this_month: number | null;
+  skipped_contacts: number;
+  skipped_summary: Record<string, number>;
+  first_message_at?: string;
 };
 type Entitlements = {
   plan_name: string;
@@ -47,6 +58,9 @@ export default function AutomationsPage() {
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
+  const [launchRule, setLaunchRule] = useState<Rule | null>(null);
+  const [audience, setAudience] = useState<Audience | null>(null);
+  const [launchBusy, setLaunchBusy] = useState(false);
   const [message, setMessage] = useState("");
   async function load() {
     const [business, templateResult, ruleResult] = await Promise.all([
@@ -98,6 +112,42 @@ export default function AutomationsPage() {
       );
     }
   }
+  async function reviewLaunch(rule: Rule) {
+    setLaunchBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ data: Audience }>(
+        `/api/v1/automations/${rule.id}/audience`,
+        {},
+        true,
+      );
+      setAudience(result.data);
+      setLaunchRule(rule);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to calculate the eligible audience.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }
+  async function launch() {
+    if (!launchRule) return;
+    setLaunchBusy(true);
+    try {
+      const result = await api<{ data: { scheduled_count: number; skipped_count: number } }>(
+        `/api/v1/automations/${launchRule.id}/launch`,
+        { method: "POST" },
+        true,
+      );
+      setMessage(`Scheduled ${result.data.scheduled_count} eligible contact${result.data.scheduled_count === 1 ? "" : "s"}. ${result.data.skipped_count} contact${result.data.skipped_count === 1 ? " was" : "s were"} skipped by consent and safety checks.`);
+      setLaunchRule(null);
+      setAudience(null);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to launch this automation.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }
   return (
     <div className="mx-auto max-w-7xl">
       <div className="flex flex-wrap items-end justify-between gap-5">
@@ -105,9 +155,8 @@ export default function AutomationsPage() {
           <p className="eyebrow">Automation rules</p>
           <h1 className="page-title">Build the follow-up journey</h1>
           <p className="page-intro">
-            Automations begin only when a POS or staff member marks a visit
-            completed. Choose when each message should be sent and stop later
-            follow-ups automatically after the review link is opened.
+            Build journeys triggered by a completed visit, or launch a journey
+            for eligible consented contacts added manually or by CSV.
           </p>
         </div>
         <button
@@ -149,9 +198,8 @@ export default function AutomationsPage() {
         <header className="border-b border-ink/8 px-5 py-4">
           <h2 className="font-semibold">Active journeys</h2>
           <p className="mt-1 text-xs text-ink/45">
-            Every delay is measured from visit completion. B Review
-            automatically avoids overnight delivery using the business messaging
-            hours.
+            Delays start from visit completion or from the moment you explicitly
+            launch a contact-list journey. Quiet hours are always respected.
           </p>
         </header>
         <div className="divide-y divide-ink/8">
@@ -169,18 +217,26 @@ export default function AutomationsPage() {
                   </div>
                   <p className="mt-1 text-xs text-ink/45">
                     {rule.location?.name ?? "All locations"} ·{" "}
-                    {rule.frequency_limit_days}-day frequency protection
+                    {rule.frequency_limit_days}-day frequency protection ·{" "}
+                    {rule.trigger_type === "contacts.manual" ? "Manual contact list" : "Completed visit"}
                   </p>
                 </div>
-                <button
-                  className="rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold"
-                  onClick={() => {
-                    setEditing(rule);
-                    setOpen(true);
-                  }}
-                >
-                  Edit
-                </button>
+                <div className="flex gap-2">
+                  {rule.trigger_type === "contacts.manual" && rule.status === "active" && (
+                    <button className="button-primary px-3 py-2 text-xs" disabled={launchBusy} onClick={() => void reviewLaunch(rule)}>
+                      Review &amp; send
+                    </button>
+                  )}
+                  <button
+                    className="rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold"
+                    onClick={() => {
+                      setEditing(rule);
+                      setOpen(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                </div>
               </div>
               <div className="mt-5 flex flex-col gap-2 md:flex-row md:items-stretch">
                 {[
@@ -201,7 +257,7 @@ export default function AutomationsPage() {
                   >
                     <div className="min-w-0 flex-1 rounded-xl bg-paper p-4">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-forest">
-                        Step {index + 1} · {formatDelay(step.delay)}
+                        Step {index + 1} · {formatDelay(step.delay, rule.trigger_type)}
                       </p>
                       <p className="mt-2 truncate text-sm font-semibold">
                         {step.template?.name}
@@ -243,6 +299,9 @@ export default function AutomationsPage() {
           onSave={save}
         />
       )}
+      {launchRule && audience && (
+        <LaunchDialog rule={launchRule} audience={audience} busy={launchBusy} onClose={() => { setLaunchRule(null); setAudience(null); }} onLaunch={() => void launch()} />
+      )}
     </div>
   );
 }
@@ -263,6 +322,9 @@ function AutomationDialog({
   onSave: (payload: Record<string, unknown>) => void;
 }) {
   const [locationId, setLocationId] = useState(rule?.location_id ?? "");
+  const [triggerType, setTriggerType] = useState<"visit.completed" | "contacts.manual">(
+    rule?.trigger_type ?? "visit.completed",
+  );
   const [steps, setSteps] = useState<
     { template: string; delay: number; cancel: boolean }[]
   >(
@@ -287,6 +349,7 @@ function AutomationDialog({
   function submit(data: FormData) {
     onSave({
       name: data.get("name"),
+      trigger_type: triggerType,
       location_id: locationId || null,
       message_template_id: steps[0].template,
       delay_minutes: steps[0].delay,
@@ -312,7 +375,7 @@ function AutomationDialog({
           <div>
             <p className="eyebrow">Automation builder</p>
             <h2 className="mt-1 text-xl font-semibold">
-              {rule ? "Edit automation" : "Create post-visit automation"}
+              {rule ? "Edit automation" : "Create automation"}
             </h2>
           </div>
           <button type="button" onClick={onClose}>
@@ -321,11 +384,25 @@ function AutomationDialog({
         </div>
         <div className="mt-5 rounded-xl border border-forest/10 bg-mint/15 p-4 text-xs leading-5 text-ink/65">
           <strong className="block text-ink">When does the timer start?</strong>
-          The timer begins when the POS reports the appointment or order as
-          completed—not at the booked appointment time. For example, a visit
-          completed at 10:00 AM with a 1-hour delay is scheduled for 11:00 AM.
-          Safe overnight delivery hours are applied automatically.
+          {triggerType === "visit.completed" ? (
+            <>The timer begins when the POS or a staff member marks a visit completed—not at the booked appointment time.</>
+          ) : (
+            <>The timer begins only after you review the eligible audience and click Send. Contacts without valid SMS consent are skipped automatically.</>
+          )}{" "}Safe overnight delivery hours are applied automatically.
         </div>
+        <fieldset className="mt-6">
+          <legend className="label">Start this automation</legend>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <button type="button" className={`rounded-xl border p-4 text-left ${triggerType === "visit.completed" ? "border-forest bg-forest/5" : "border-ink/10"}`} onClick={() => setTriggerType("visit.completed")}>
+              <strong className="block text-sm">After a completed visit</strong>
+              <span className="mt-1 block text-xs text-ink/50">Automatic when a POS or staff member completes a visit.</span>
+            </button>
+            <button type="button" className={`rounded-xl border p-4 text-left ${triggerType === "contacts.manual" ? "border-forest bg-forest/5" : "border-ink/10"}`} onClick={() => setTriggerType("contacts.manual")}>
+              <strong className="block text-sm">Eligible contact list</strong>
+              <span className="mt-1 block text-xs text-ink/50">Manually launch to consented contacts imported by CSV or added in the dashboard.</span>
+            </button>
+          </div>
+        </fieldset>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <label className="label">
             Name
@@ -340,6 +417,7 @@ function AutomationDialog({
             Location
             <select
               className="field"
+              required={triggerType === "contacts.manual"}
               value={locationId}
               onChange={(event) => {
                 setLocationId(event.target.value);
@@ -353,6 +431,9 @@ function AutomationDialog({
                 </option>
               ))}
             </select>
+            {triggerType === "contacts.manual" && !locationId && (
+              <span className="mt-1 block text-[11px] font-normal text-amber-800">Choose one location for its business name and review link.</span>
+            )}
           </label>
           <label className="label">
             Do not request another review for
@@ -386,8 +467,7 @@ function AutomationDialog({
           <div>
             <h3 className="font-semibold">Message steps</h3>
             <p className="mt-1 text-xs text-ink/45">
-              Every step is timed from visit completion and must be later than
-              the previous step.
+              Every step is timed from {triggerType === "contacts.manual" ? "the manual launch" : "visit completion"} and must be later than the previous step.
             </p>
           </div>
           {steps.length < maxSteps && (
@@ -519,7 +599,7 @@ function AutomationDialog({
           >
             Cancel
           </button>
-          <button className="button-primary">Save automation</button>
+          <button className="button-primary" disabled={triggerType === "contacts.manual" && !locationId}>Save automation</button>
         </div>
       </form>
     </div>
@@ -567,8 +647,48 @@ function DelayInput({
     </label>
   );
 }
-function formatDelay(minutes: number) {
-  if (minutes < 60) return `${minutes} min after visit`;
-  if (minutes < 1440) return `${Math.round(minutes / 60)} hr after visit`;
-  return `${Math.round(minutes / 1440)} day(s) after visit`;
+function formatDelay(minutes: number, trigger: Rule["trigger_type"]) {
+  const suffix = trigger === "contacts.manual" ? "after launch" : "after visit";
+  if (minutes < 60) return `${minutes} min ${suffix}`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)} hr ${suffix}`;
+  return `${Math.round(minutes / 1440)} day(s) ${suffix}`;
+}
+
+function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule; audience: Audience; busy: boolean; onClose: () => void; onLaunch: () => void }) {
+  const labels: Record<string, string> = {
+    inactive: "Inactive contacts",
+    phone_missing: "Missing phone",
+    consent_missing: "SMS consent missing",
+    suppressed: "Suppressed / opted out",
+    review_already_confirmed: "Review already confirmed",
+    frequency_limited: "Recently messaged",
+    already_scheduled: "Already scheduled",
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4">
+      <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div><p className="eyebrow">Review audience</p><h2 className="mt-1 text-xl font-semibold">Send {rule.name}</h2></div>
+          <button onClick={onClose}>×</button>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <AutomationMetric label="Eligible" value={audience.eligible_contacts} detail="Will be scheduled" />
+          <AutomationMetric label="Skipped" value={audience.skipped_contacts} detail="Safety checks" />
+          <AutomationMetric label="Total contacts" value={audience.total_contacts} detail="In this workspace" />
+        </div>
+        {Object.keys(audience.skipped_summary).length > 0 && (
+          <div className="mt-5 rounded-xl bg-paper p-4"><p className="text-xs font-semibold">Skipped contacts</p><div className="mt-2 space-y-1 text-xs text-ink/55">{Object.entries(audience.skipped_summary).map(([reason, count]) => <div key={reason} className="flex justify-between"><span>{labels[reason] ?? reason}</span><strong>{count}</strong></div>)}</div></div>
+        )}
+        <p className="mt-5 rounded-xl border border-forest/15 bg-mint/15 p-4 text-xs leading-5 text-ink/65">
+          Only active contacts with a valid SMS consent record are included. Suppressed contacts, confirmed reviewers, recently messaged contacts, and contacts already scheduled are excluded. The exact saved template is sent; no “test” or “via B Review” text is added.
+        </p>
+        {audience.first_message_at && <p className="mt-3 text-xs text-ink/50">First messages are scheduled for {new Date(audience.first_message_at).toLocaleString()}.</p>}
+        <div className="mt-6 flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || audience.eligible_contacts === 0} onClick={onLaunch}>{busy ? "Scheduling…" : `Send to ${audience.eligible_contacts} eligible contact${audience.eligible_contacts === 1 ? "" : "s"}`}</button></div>
+      </div>
+    </div>
+  );
+}
+
+function AutomationMetric({ label, value, detail }: { label: string; value: number; detail: string }) {
+  return <div className="rounded-xl bg-paper p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p><p className="mt-1 text-[10px] text-ink/40">{detail}</p></div>;
 }

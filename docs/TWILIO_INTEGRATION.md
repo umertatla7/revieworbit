@@ -24,7 +24,7 @@ Twilio references: [Messaging Services](https://www.twilio.com/docs/messaging/se
 
 SMS and WhatsApp consent are stored independently. Consent imported with a POS contact or appointment is never assumed. A message is sent only when all of these are true:
 
-1. The visit produced an eligible, due automation dispatch.
+1. A completed visit produced an eligible dispatch, or an owner/manager explicitly launched a contact-list automation after reviewing its eligible audience.
 2. The business's Twilio configuration is verified and the selected channel is enabled.
 3. The customer has current consent for that exact channel.
 4. The customer is not suppressed for that channel.
@@ -69,7 +69,17 @@ Trial mode is a temporary exception to the production subaccount architecture:
 4. Add the tester as a customer, record real SMS consent, and verify that exact phone number in the Twilio Console.
 5. In **Message templates**, select **Send test message**, choose the consented tester, and confirm the Twilio Trial verification.
 
-Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in delivery history, and prefixes SMS text with the tenant identity followed by `test via B Review`. The selected review destination is used directly, so a test click is not counted as a customer **Review link clicked** event. The test dialog distinguishes Twilio acceptance, carrier handoff, confirmed delivery, and failure; trial restrictions can still cause Twilio to reject custom content or unverified destinations, and the rejection code is shown without exposing credentials.
+Test delivery is rate limited and audited. It creates a separate test-delivery record, uses only a tenant-scoped customer ID, stores only a phone hash and final four digits in operational delivery history, and sends the exact rendered template without adding `test` or `via B Review` to the recipient text. The dashboard identifies the delivery as a test and stores the encrypted body snapshot for the tenant's customer history. The selected review destination is used directly, so a test click is not counted as a customer **Review link clicked** event. The test dialog distinguishes Twilio acceptance, carrier handoff, confirmed delivery, and failure; trial restrictions can still cause Twilio to reject custom content or unverified destinations, and the rejection code is shown without exposing credentials.
+
+The message content must still match the use case and identity language approved in the Twilio campaign. Before sending broadly without the B Review name, the platform owner must confirm that the registered campaign permits business-only identification or amend the campaign description/sample messages with Twilio.
+
+### Manual and CSV contact journeys
+
+Contact-list automations are separate from completed-visit automations. Saving one does not send anything. An owner or manager must open **Automations → Review & send**, inspect eligible and skipped counts, and explicitly launch it. The launch records an auditable run and schedules the saved steps relative to the launch time while respecting quiet hours.
+
+Only active contacts with a phone number and current SMS consent are eligible. Suppressed contacts, confirmed reviewers, contacts inside the configured frequency window, and contacts already scheduled are skipped. CSV import accepts optional `sms_consent` and `consent_source` columns; `sms_consent=yes` or `granted` creates consent evidence only for that row. A phone number alone never creates consent.
+
+Every resulting delivery and test delivery appears in the tenant-scoped customer detail screen with its encrypted exact body snapshot and provider status. Other tenants cannot access that history.
 
 ### Operational visibility
 

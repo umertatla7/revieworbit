@@ -14,6 +14,13 @@ type Delivery = {
   created_at: string;
   template?: { name: string };
   review_link?: { first_clicked_at?: string; click_count: number };
+  delivery_type?: string;
+  is_test?: boolean;
+  sent_at?: string;
+  delivered_at?: string;
+  failed_at?: string;
+  provider_error_code?: string;
+  failure_message?: string;
 };
 type ReviewLink = {
   id: string;
@@ -48,9 +55,12 @@ type Customer = {
   visits?: Visit[];
   review_links?: ReviewLink[];
   message_deliveries?: Delivery[];
+  message_history?: Delivery[];
   visits_count?: number;
   review_links_count?: number;
   clicked_review_links_count?: number;
+  message_deliveries_count?: number;
+  test_message_deliveries_count?: number;
 };
 type Meta = { current_page: number; last_page: number; total: number };
 type ImportPreview = {
@@ -453,7 +463,7 @@ export default function CustomersPage() {
                       <span className="text-xs text-ink/40">Not sent</span>
                     )}
                   </div>
-                  <ConsentPill value={consentState(customer)} />
+                  <div><ConsentPill value={consentState(customer)} /><p className="mt-1 text-[10px] text-ink/40">{(customer.message_deliveries_count ?? 0) + (customer.test_message_deliveries_count ?? 0)} messages</p></div>
                   <span className="text-xs capitalize text-ink/55">
                     {customer.source}
                   </span>
@@ -604,7 +614,23 @@ function CustomerDialog({
           </div>
         </section>
         <section>
-          <h3 className="text-sm font-semibold">Messages & review links</h3>
+          <h3 className="text-sm font-semibold">Message history ({customer.message_history?.length ?? 0})</h3>
+          <p className="mt-1 text-[11px] text-ink/45">The exact stored copy sent to this customer, including test messages and delivery status.</p>
+          <div className="mt-3 space-y-3">
+            {customer.message_history?.length ? customer.message_history.map((delivery) => (
+              <article className="rounded-xl border border-ink/8 p-4" key={delivery.id}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2"><span className="pill capitalize">{delivery.status}</span>{delivery.is_test && <span className="pill bg-amber-50 text-amber-800">Test</span>}<span className="text-xs font-semibold">{delivery.template?.name ?? "Message"}</span></div>
+                  <span className="text-[10px] text-ink/40">{new Date(delivery.created_at).toLocaleString()}</span>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap rounded-lg bg-paper p-3 text-xs leading-5 text-ink/75">{delivery.body_snapshot || "Message content was not retained for this older delivery."}</p>
+                {(delivery.failure_message || delivery.provider_error_code) && <p className="mt-2 text-[11px] text-red-700">{delivery.provider_error_code ? `Twilio ${delivery.provider_error_code}: ` : ""}{delivery.failure_message}</p>}
+              </article>
+            )) : <p className="text-xs text-ink/45">No messages have been sent to this customer.</p>}
+          </div>
+        </section>
+        <section>
+          <h3 className="text-sm font-semibold">Review links</h3>
           <div className="mt-3 space-y-3">
             {customer.review_links?.length ? (
               customer.review_links.map((link) => (
@@ -739,7 +765,7 @@ function ImportDialog({
   const [error, setError] = useState("");
   function downloadSample() {
     const csv =
-      "first_name,last_name,email,phone\nAva,Morgan,ava@example.com,+12025550123\n";
+      "first_name,last_name,email,phone,sms_consent,consent_source\nAva,Morgan,ava@example.com,+12025550123,yes,written\n";
     const url = URL.createObjectURL(
       new Blob([csv], { type: "text/csv;charset=utf-8" }),
     );
@@ -810,7 +836,9 @@ function ImportDialog({
               </p>
               <p className="mt-1 text-[11px] text-ink/45">
                 First name and phone are required. Last name and email are
-                optional.
+                optional. Set sms_consent to yes only when that row has valid
+                permission, and record written, verbal, web_form, provider, or
+                import as the consent_source.
               </p>
             </div>
             <button className="button-secondary" onClick={downloadSample}>

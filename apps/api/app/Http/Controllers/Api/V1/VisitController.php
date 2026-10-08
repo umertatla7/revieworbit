@@ -56,8 +56,8 @@ class VisitController extends Controller
         ]);
         $customer->update(['last_visit_at' => $visit->completed_at]);
         $rules = isset($data['automation_rule_id'])
-            ? AutomationRule::where('business_id', $businessId)->whereKey($data['automation_rule_id'])->get()
-            : AutomationRule::where('business_id', $businessId)->where('status', 'active')->where(fn ($query) => $query->whereNull('location_id')->orWhere('location_id', $visit->location_id))->get();
+            ? AutomationRule::where('business_id', $businessId)->where('trigger_type', 'visit.completed')->whereKey($data['automation_rule_id'])->get()
+            : AutomationRule::where('business_id', $businessId)->where('trigger_type', 'visit.completed')->where('status', 'active')->where(fn ($query) => $query->whereNull('location_id')->orWhere('location_id', $visit->location_id))->get();
         $dispatches = $rules->map(fn (AutomationRule $rule) => $evaluator->evaluate($visit, $rule));
         $auditor->record($request, 'visit.created', $visit, ['source' => 'manual']);
 

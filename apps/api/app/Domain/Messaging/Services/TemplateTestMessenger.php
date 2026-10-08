@@ -69,7 +69,7 @@ class TemplateTestMessenger
         $testLink = $template->reviewDestination?->url
             ?? rtrim(config('services.twilio.tracking_base_url'), '/').'/r/example';
         $businessName = trim((string) $template->business->name) ?: 'Your business';
-        $body = '['.$businessName.' test via B Review] '.$this->renderer->render($template->body, [
+        $body = $this->renderer->render($template->body, [
             'customer_first_name' => $customer->first_name,
             'customer_last_name' => $customer->last_name,
             'business_name' => $businessName,
@@ -104,6 +104,7 @@ class TemplateTestMessenger
             'requested_by_user_id' => $requestedByUserId,
             'provider' => 'twilio',
             'channel' => $channel,
+            'body_snapshot' => $body,
             'to_hash' => hash('sha256', $customer->phone_e164),
             'to_last_four' => substr($customer->phone_e164, -4),
             'status' => 'pending',

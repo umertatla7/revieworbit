@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Automations\Models\AutomationRule;
+use App\Domain\Automations\Services\ContactAutomationLauncher;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Models\Location;
 use App\Domain\Tenancy\Services\PlanEntitlements;
@@ -20,7 +21,10 @@ class AutomationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
-        $rules = AutomationRule::where('business_id', $businessId)->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination'])->latest()->get();
+        $rules = AutomationRule::where('business_id', $businessId)
+            ->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination', 'runs' => fn ($query) => $query->latest()->limit(3)])
+            ->latest()
+            ->get();
 
         return response()->json(['data' => $rules]);
     }
@@ -31,6 +35,7 @@ class AutomationController extends Controller
         $limits = $entitlements->for($request->attributes->get('business'));
         abort_unless($limits['can_add_automation'], 422, 'Your current plan has reached its automation limit.');
         $data = $this->validated($request);
+        $data['trigger_type'] ??= 'visit.completed';
         $this->validateStepLimit($data, $limits['automation_step_limit']);
         $this->validateStepTiming($data);
         $this->validateTenantReferences($businessId, $data);
@@ -56,7 +61,10 @@ class AutomationController extends Controller
         $data = $this->validated($request, true);
         $this->validateStepLimit($data, $entitlements->for($request->attributes->get('business'))['automation_step_limit']);
         $this->validateStepTiming($data, $rule->delay_minutes);
-        $this->validateTenantReferences($businessId, $data);
+        $this->validateTenantReferences($businessId, [
+            ...$rule->only(['location_id', 'message_template_id', 'trigger_type', 'status']),
+            ...$data,
+        ]);
         $followUps = $data['follow_ups'] ?? null;
         unset($data['follow_ups']);
         DB::transaction(function () use ($rule, $data, $followUps, $businessId): void {
@@ -77,11 +85,31 @@ class AutomationController extends Controller
     public function history(Request $request): JsonResponse
     {
         $dispatches = AutomationDispatch::where('business_id', $request->attributes->get('business')->id)
-            ->with(['visit.customer', 'visit.location', 'rule'])
+            ->with(['visit.customer', 'visit.location', 'customer', 'run', 'rule'])
             ->latest()
             ->paginate(50);
 
         return response()->json(['data' => $dispatches->items(), 'meta' => ['total' => $dispatches->total()]]);
+    }
+
+    public function audience(Request $request, string $automation, ContactAutomationLauncher $launcher): JsonResponse
+    {
+        $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
+
+        return response()->json(['data' => $launcher->preview($rule)]);
+    }
+
+    public function launch(Request $request, string $automation, ContactAutomationLauncher $launcher, Auditor $auditor): JsonResponse
+    {
+        $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
+        $run = $launcher->launch($rule, $request->user()->id);
+        $auditor->record($request, 'automation.contact_list_launched', $run, [
+            'automation_rule_id' => $rule->id,
+            'scheduled_count' => $run->scheduled_count,
+            'skipped_count' => $run->skipped_count,
+        ]);
+
+        return response()->json(['data' => $run], 202);
     }
 
     private function validated(Request $request, bool $partial = false): array
@@ -92,7 +120,7 @@ class AutomationController extends Controller
             'name' => [$required, 'string', 'max:120'],
             'location_id' => ['nullable', 'string'],
             'message_template_id' => [$required, 'string'],
-            'trigger_type' => ['sometimes', Rule::in(['visit.completed'])],
+            'trigger_type' => ['sometimes', Rule::in(['visit.completed', 'contacts.manual'])],
             'delay_minutes' => ['sometimes', 'integer', 'min:0', 'max:43200'],
             'quiet_hours_start' => ['nullable', 'date_format:H:i'],
             'quiet_hours_end' => ['nullable', 'date_format:H:i'],
@@ -108,6 +136,9 @@ class AutomationController extends Controller
 
     private function validateTenantReferences(string $businessId, array $data): void
     {
+        if (($data['trigger_type'] ?? null) === 'contacts.manual' && empty($data['location_id'])) {
+            throw ValidationException::withMessages(['location_id' => ['Choose the location whose review link this contact campaign will use.']]);
+        }
         if (isset($data['message_template_id'])) {
             $template = MessageTemplate::where('business_id', $businessId)->findOrFail($data['message_template_id']);
             if (! empty($data['location_id']) && $template->location_id !== $data['location_id']) {

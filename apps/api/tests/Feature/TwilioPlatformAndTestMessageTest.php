@@ -138,10 +138,15 @@ class TwilioPlatformAndTestMessageTest extends TestCase
             ->assertJsonPath('data.0.status', 'queued')
             ->assertJsonPath('data.0.to_last_four', '0123');
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/Messages.json')
-            && str_starts_with((string) $request['Body'], '[Business A test via B Review]')
+            && str_starts_with((string) $request['Body'], 'Hi Test, thank you for visiting Business A:')
+            && ! str_contains((string) $request['Body'], 'test via B Review')
             && str_contains((string) $request['Body'], 'https://www.google.com/maps?cid=123')
             && ! str_contains((string) $request['Body'], '/dashboard/templates')
             && $request['To'] === $customerA->phone_e164);
+        $this->assertSame(
+            'Hi Test, thank you for visiting Business A: https://www.google.com/maps?cid=123',
+            $customerA->testMessageDeliveries()->latest()->firstOrFail()->body_snapshot,
+        );
     }
 
     public function test_business_owner_can_select_verified_platform_shared_sender_without_receiving_platform_credentials(): void

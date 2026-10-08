@@ -322,6 +322,52 @@ class MessagingTest extends TestCase
             ->assertJsonValidationErrors('message_template_id');
     }
 
+    public function test_contact_list_automation_previews_only_consented_contacts_and_sends_without_a_visit(): void
+    {
+        [$owner, $business, $location, $customer, $template, $rule] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $template->update(['location_id' => $location->id]);
+        $rule->update(['trigger_type' => 'contacts.manual', 'delay_minutes' => 0]);
+        $missingConsent = Customer::create([
+            'business_id' => $business->id,
+            'first_name' => 'No Consent',
+            'phone_e164' => '+12025550199',
+            'phone_hash' => hash('sha256', '+12025550199'),
+            'source' => 'import',
+        ]);
+        [$otherOwner, $otherBusiness] = $this->fixture('Other Tenant');
+        $headers = ['X-Business-ID' => $business->id];
+
+        $this->actingAs($otherOwner)->getJson('/api/v1/automations/'.$rule->id.'/audience', ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $this->postJson('/api/v1/automations/'.$rule->id.'/launch', [], ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $this->actingAs($owner)->getJson('/api/v1/automations/'.$rule->id.'/audience', $headers)
+            ->assertOk()
+            ->assertJsonPath('data.eligible_contacts', 1)
+            ->assertJsonPath('data.skipped_summary.consent_missing', 1);
+        $response = $this->postJson('/api/v1/automations/'.$rule->id.'/launch', [], $headers)
+            ->assertAccepted()
+            ->assertJsonPath('data.scheduled_count', 1)
+            ->assertJsonPath('data.skipped_count', 1);
+
+        $dispatch = AutomationDispatch::where('automation_run_id', $response->json('data.id'))->firstOrFail();
+        $this->assertNull($dispatch->visit_id);
+        $this->assertSame($customer->id, $dispatch->customer_id);
+        $this->assertDatabaseMissing('automation_dispatches', ['automation_run_id' => $response->json('data.id'), 'customer_id' => $missingConsent->id]);
+
+        $delivery = app(MessagingManager::class)->send($dispatch);
+        $this->assertSame('contact_campaign', $delivery->delivery_type);
+        $this->assertNull($delivery->visit_id);
+        $this->assertNull($delivery->reviewLink->visit_id);
+        $this->assertStringContainsString($business->name, $delivery->body_snapshot);
+        $this->assertStringNotContainsString('via B Review', $delivery->body_snapshot);
+        $this->assertDatabaseCount('visits', 2);
+        $this->actingAs($owner)->getJson('/api/v1/customers/'.$customer->id, $headers)
+            ->assertOk()
+            ->assertJsonPath('data.message_history.0.body_snapshot', $delivery->body_snapshot)
+            ->assertJsonPath('data.message_history.0.delivery_type', 'contact_campaign');
+        $this->actingAs($otherOwner)->getJson('/api/v1/customers/'.$customer->id, ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+    }
+
     private function fixture(string $name = 'AL Barber Shop', string $channel = 'sms'): array
     {
         $owner = User::factory()->create();

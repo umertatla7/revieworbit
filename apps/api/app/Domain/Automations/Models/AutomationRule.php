@@ -41,6 +41,11 @@ class AutomationRule extends Model
         return $this->hasMany(AutomationDispatch::class);
     }
 
+    public function runs(): HasMany
+    {
+        return $this->hasMany(AutomationRun::class);
+    }
+
     protected function casts(): array
     {
         return ['delay_minutes' => 'integer', 'frequency_limit_days' => 'integer', 'cancel_follow_up_after_click' => 'boolean'];

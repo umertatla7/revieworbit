@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['business_id', 'customer_id', 'message_template_id', 'requested_by_user_id', 'provider', 'channel', 'to_hash', 'to_last_four', 'provider_message_sid', 'status', 'provider_error_code', 'failure_message', 'queued_at', 'sent_at', 'delivered_at', 'failed_at'])]
+#[Fillable(['business_id', 'customer_id', 'message_template_id', 'requested_by_user_id', 'provider', 'channel', 'body_snapshot', 'to_hash', 'to_last_four', 'provider_message_sid', 'status', 'provider_error_code', 'failure_message', 'queued_at', 'sent_at', 'delivered_at', 'failed_at'])]
 class TestMessageDelivery extends Model
 {
     use HasUlids;
@@ -33,6 +33,7 @@ class TestMessageDelivery extends Model
     protected function casts(): array
     {
         return [
+            'body_snapshot' => 'encrypted',
             'queued_at' => 'datetime',
             'sent_at' => 'datetime',
             'delivered_at' => 'datetime',

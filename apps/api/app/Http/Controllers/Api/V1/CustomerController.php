@@ -25,7 +25,7 @@ class CustomerController extends Controller
                 'visits' => fn ($query) => $query->with('location:id,name')->latest('completed_at')->limit(1),
                 'reviewLinks' => fn ($query) => $query->with(['location:id,name', 'destination:id,provider'])->latest()->limit(1),
             ])
-            ->withCount(['visits', 'reviewLinks', 'reviewLinks as clicked_review_links_count' => fn ($query) => $query->whereNotNull('first_clicked_at')])
+            ->withCount(['visits', 'reviewLinks', 'messageDeliveries', 'testMessageDeliveries', 'reviewLinks as clicked_review_links_count' => fn ($query) => $query->whereNotNull('first_clicked_at')])
             ->when($request->string('search')->toString(), function ($query, string $search): void {
                 $query->where(fn ($nested) => $nested->where('first_name', 'like', "%{$search}%")
                     ->orWhere('last_name', 'like', "%{$search}%")
@@ -80,13 +80,46 @@ class CustomerController extends Controller
 
     public function show(Request $request, string $customer): JsonResponse
     {
-        return response()->json(['data' => $this->scoped($request, $customer)->load([
+        $model = $this->scoped($request, $customer)->load([
             'consents' => fn ($query) => $query->latest('recorded_at'),
             'suppressions' => fn ($query) => $query->latest('suppressed_at'),
             'visits' => fn ($query) => $query->with(['location:id,name', 'reviewLinks.destination:id,provider', 'messageDeliveries.template:id,name'])->latest('completed_at'),
             'reviewLinks' => fn ($query) => $query->with(['location:id,name', 'destination:id,provider', 'deliveries.template:id,name'])->latest(),
             'messageDeliveries' => fn ($query) => $query->with(['template:id,name', 'reviewLink:id,first_clicked_at,click_count'])->latest(),
-        ])]);
+            'testMessageDeliveries' => fn ($query) => $query->with('template:id,name')->latest(),
+        ]);
+        $data = $model->toArray();
+        $data['message_history'] = $model->messageDeliveries->map(fn ($delivery): array => [
+            'id' => $delivery->id,
+            'status' => $delivery->status,
+            'channel' => $delivery->channel,
+            'body_snapshot' => $delivery->body_snapshot,
+            'delivery_type' => $delivery->delivery_type,
+            'is_test' => false,
+            'created_at' => $delivery->created_at,
+            'sent_at' => $delivery->sent_at,
+            'delivered_at' => $delivery->delivered_at,
+            'failed_at' => $delivery->failed_at,
+            'provider_error_code' => $delivery->provider_error_code,
+            'failure_message' => $delivery->failure_message,
+            'template' => $delivery->template?->only(['id', 'name']),
+        ])->concat($model->testMessageDeliveries->map(fn ($delivery): array => [
+            'id' => $delivery->id,
+            'status' => $delivery->status,
+            'channel' => $delivery->channel,
+            'body_snapshot' => $delivery->body_snapshot,
+            'delivery_type' => 'test',
+            'is_test' => true,
+            'created_at' => $delivery->created_at,
+            'sent_at' => $delivery->sent_at,
+            'delivered_at' => $delivery->delivered_at,
+            'failed_at' => $delivery->failed_at,
+            'provider_error_code' => $delivery->provider_error_code,
+            'failure_message' => $delivery->failure_message,
+            'template' => $delivery->template?->only(['id', 'name']),
+        ]))->sortByDesc('created_at')->values();
+
+        return response()->json(['data' => $data]);
     }
 
     public function update(Request $request, string $customer, Auditor $auditor): JsonResponse
@@ -205,7 +238,7 @@ class CustomerController extends Controller
         $required = ['first_name', 'phone'];
         if (array_diff($required, $headers) !== []) {
             fclose($handle);
-            throw ValidationException::withMessages(['file' => ['CSV headers must include first_name and phone. Optional headers are last_name and email.']]);
+            throw ValidationException::withMessages(['file' => ['CSV headers must include first_name and phone. Optional headers are last_name, email, sms_consent, and consent_source.']]);
         }
 
         $rows = [];
@@ -223,7 +256,14 @@ class CustomerController extends Controller
                 continue;
             }
             $row = array_combine($headers, $values);
-            $validator = Validator::make($row, ['first_name' => ['required', 'string', 'max:100'], 'last_name' => ['nullable', 'string', 'max:100'], 'email' => ['nullable', 'email'], 'phone' => ['required', 'regex:/^\+[1-9][0-9]{7,14}$/']]);
+            $validator = Validator::make($row, [
+                'first_name' => ['required', 'string', 'max:100'],
+                'last_name' => ['nullable', 'string', 'max:100'],
+                'email' => ['nullable', 'email'],
+                'phone' => ['required', 'regex:/^\+[1-9][0-9]{7,14}$/'],
+                'sms_consent' => ['nullable', Rule::in(['', 'yes', 'no', 'granted'])],
+                'consent_source' => ['nullable', Rule::in(['', 'written', 'verbal', 'web_form', 'provider', 'import'])],
+            ]);
             if ($validator->fails()) {
                 $errors[] = ['row' => $line, 'reason' => $validator->errors()->first()];
 
@@ -240,7 +280,22 @@ class CustomerController extends Controller
         $created = 0;
         foreach ($rows as $index => $row) {
             try {
-                $this->createCustomer($business->id, [...$row, 'source' => 'import']);
+                $smsConsent = $row['sms_consent'] ?? '';
+                $consentSource = ($row['consent_source'] ?? '') ?: 'import';
+                unset($row['sms_consent'], $row['consent_source']);
+                $customer = $this->createCustomer($business->id, [...$row, 'source' => 'import']);
+                if (in_array($smsConsent, ['yes', 'granted'], true)) {
+                    $customer->consents()->create([
+                        'business_id' => $business->id,
+                        'channel' => 'sms',
+                        'status' => 'granted',
+                        'source' => $consentSource,
+                        'disclosure_version' => 'csv-import-v1',
+                        'evidence' => ['method' => 'csv_import'],
+                        'recorded_at' => now(),
+                        'consented_at' => now(),
+                    ]);
+                }
                 $created++;
             } catch (UniqueConstraintViolationException) {
                 $errors[] = ['row' => $index + 2, 'reason' => 'Duplicate phone number for this business.'];
