@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Automations\Models\AutomationRule;
+use App\Domain\Automations\Models\AutomationRun;
 use App\Domain\Automations\Services\ContactAutomationLauncher;
 use App\Domain\Templates\Models\MessageTemplate;
 use App\Domain\Tenancy\Models\Location;
@@ -22,7 +23,9 @@ class AutomationController extends Controller
     {
         $businessId = $request->attributes->get('business')->id;
         $rules = AutomationRule::where('business_id', $businessId)
-            ->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination', 'runs' => fn ($query) => $query->latest()->limit(3)])
+            ->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination', 'runs' => fn ($query) => $query->withCount([
+                'dispatches as pending_first_count' => fn ($dispatches) => $dispatches->where('sequence_number', 0)->where('decision', 'scheduled')->whereDoesntHave('delivery'),
+            ])->latest()->limit(3)])
             ->latest()
             ->get();
 
@@ -36,6 +39,9 @@ class AutomationController extends Controller
         abort_unless($limits['can_add_automation'], 422, 'Your current plan has reached its automation limit.');
         $data = $this->validated($request);
         $data['trigger_type'] ??= 'visit.completed';
+        if ($data['trigger_type'] === 'contacts.manual') {
+            $data['delay_minutes'] = 0;
+        }
         $this->validateStepLimit($data, $limits['automation_step_limit']);
         $this->validateStepTiming($data);
         $this->validateTenantReferences($businessId, $data);
@@ -59,6 +65,9 @@ class AutomationController extends Controller
         $businessId = $request->attributes->get('business')->id;
         $rule = AutomationRule::where('business_id', $businessId)->findOrFail($automation);
         $data = $this->validated($request, true);
+        if (($data['trigger_type'] ?? $rule->trigger_type) === 'contacts.manual') {
+            $data['delay_minutes'] = 0;
+        }
         $this->validateStepLimit($data, $entitlements->for($request->attributes->get('business'))['automation_step_limit']);
         $this->validateStepTiming($data, $rule->delay_minutes);
         $this->validateTenantReferences($businessId, [
@@ -110,6 +119,17 @@ class AutomationController extends Controller
         ]);
 
         return response()->json(['data' => $run], 202);
+    }
+
+    public function sendPendingNow(Request $request, string $automation, string $run, ContactAutomationLauncher $launcher, Auditor $auditor): JsonResponse
+    {
+        $businessId = $request->attributes->get('business')->id;
+        $rule = AutomationRule::where('business_id', $businessId)->findOrFail($automation);
+        $model = AutomationRun::where('business_id', $businessId)->where('automation_rule_id', $rule->id)->findOrFail($run);
+        $count = $launcher->sendPendingNow($rule, $model);
+        $auditor->record($request, 'automation.pending_first_messages_queued', $model, ['queued_count' => $count]);
+
+        return response()->json(['data' => ['queued_count' => $count]], 202);
     }
 
     private function validated(Request $request, bool $partial = false): array

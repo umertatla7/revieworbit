@@ -75,7 +75,7 @@ The message content must still match the use case and identity language approved
 
 ### Manual and CSV contact journeys
 
-Contact-list automations are separate from completed-visit automations. Saving one does not send anything. An owner or manager must open **Automations → Review & send**, inspect eligible and skipped counts, and explicitly launch it. The launch records an auditable run and schedules the saved steps relative to the launch time while respecting quiet hours.
+Contact-list automations are separate from completed-visit automations. Saving one does not send anything. An owner or manager must open **Automations → Review & send**, inspect eligible and skipped counts, and explicitly launch it. The launch records an auditable run and immediately queues the first message after the transaction commits. The initial delay is zero, and this explicit manual send does not defer the first message for quiet hours. Later follow-ups retain their delays and quiet-hour scheduling. Completed-visit messages retain their configurable initial delay and quiet hours. Owners/managers can explicitly queue the pending first messages of an older contact-list run using **Send pending first messages now**; already recorded deliveries are excluded.
 
 Only active contacts with a phone number and current SMS consent are eligible. Suppressed contacts, confirmed reviewers, contacts inside the configured frequency window, and contacts already scheduled are skipped. CSV import accepts optional `sms_consent` and `consent_source` columns; `sms_consent=yes` or `granted` creates consent evidence only for that row. A phone number alone never creates consent.
 

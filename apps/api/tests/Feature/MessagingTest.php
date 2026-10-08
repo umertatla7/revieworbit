@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Automations\Models\AutomationRule;
+use App\Domain\Automations\Services\ContactAutomationLauncher;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Media\Models\MediaTemplate;
 use App\Domain\Messaging\Jobs\SendAutomationDispatch;
@@ -19,6 +20,7 @@ use App\Domain\Tenancy\Models\BusinessUser;
 use App\Domain\Tenancy\Models\Location;
 use App\Domain\Visits\Models\Visit;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
@@ -324,10 +326,13 @@ class MessagingTest extends TestCase
 
     public function test_contact_list_automation_previews_only_consented_contacts_and_sends_without_a_visit(): void
     {
+        Queue::fake();
+        $this->travelTo(CarbonImmutable::parse('2026-10-08 09:44:00', 'UTC'));
         [$owner, $business, $location, $customer, $template, $rule] = $this->fixture();
         $this->configuration($business, sms: true);
         $template->update(['location_id' => $location->id]);
-        $rule->update(['trigger_type' => 'contacts.manual', 'delay_minutes' => 0]);
+        $rule->update(['trigger_type' => 'contacts.manual', 'delay_minutes' => 60, 'quiet_hours_start' => '20:00', 'quiet_hours_end' => '09:00']);
+        $rule->followUps()->create(['message_template_id' => $template->id, 'sequence_number' => 1, 'delay_minutes' => 120, 'cancel_after_click' => true]);
         $missingConsent = Customer::create([
             'business_id' => $business->id,
             'first_name' => 'No Consent',
@@ -349,7 +354,11 @@ class MessagingTest extends TestCase
             ->assertJsonPath('data.scheduled_count', 1)
             ->assertJsonPath('data.skipped_count', 1);
 
-        $dispatch = AutomationDispatch::where('automation_run_id', $response->json('data.id'))->firstOrFail();
+        $dispatch = AutomationDispatch::where('automation_run_id', $response->json('data.id'))->where('sequence_number', 0)->firstOrFail();
+        $this->assertTrue($dispatch->scheduled_for->equalTo(now()));
+        Queue::assertPushed(SendAutomationDispatch::class, fn ($job) => $job->dispatchId === $dispatch->id);
+        $followUp = AutomationDispatch::where('automation_run_id', $response->json('data.id'))->where('sequence_number', 1)->firstOrFail();
+        $this->assertSame('2026-10-08 13:00:00', $followUp->scheduled_for->utc()->format('Y-m-d H:i:s'));
         $this->assertNull($dispatch->visit_id);
         $this->assertSame($customer->id, $dispatch->customer_id);
         $this->assertDatabaseMissing('automation_dispatches', ['automation_run_id' => $response->json('data.id'), 'customer_id' => $missingConsent->id]);
@@ -366,6 +375,26 @@ class MessagingTest extends TestCase
             ->assertJsonPath('data.message_history.0.body_snapshot', $delivery->body_snapshot)
             ->assertJsonPath('data.message_history.0.delivery_type', 'contact_campaign');
         $this->actingAs($otherOwner)->getJson('/api/v1/customers/'.$customer->id, ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+    }
+
+    public function test_pending_contact_first_message_can_be_queued_now_without_resending_a_delivery(): void
+    {
+        Queue::fake();
+        [$owner, $business, $location, , $template, $rule] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $template->update(['location_id' => $location->id]);
+        $rule->update(['trigger_type' => 'contacts.manual']);
+        $run = app(ContactAutomationLauncher::class)->launch($rule, $owner->id);
+        $dispatch = $run->dispatches()->firstOrFail();
+        $dispatch->update(['scheduled_for' => now()->addHours(3)]);
+        $url = '/api/v1/automations/'.$rule->id.'/runs/'.$run->id.'/send-now';
+        [$otherOwner, $otherBusiness] = $this->fixture('Other Business');
+        $this->actingAs($otherOwner)->postJson($url, [], ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $this->actingAs($owner)->postJson($url, [], ['X-Business-ID' => $business->id])->assertAccepted()->assertJsonPath('data.queued_count', 1);
+        $this->assertTrue($dispatch->fresh()->scheduled_for->lte(now()));
+        app(MessagingManager::class)->send($dispatch->fresh());
+        $this->postJson($url, [], ['X-Business-ID' => $business->id])->assertAccepted()->assertJsonPath('data.queued_count', 0);
+        $this->assertDatabaseCount('message_deliveries', 1);
     }
 
     private function fixture(string $name = 'AL Barber Shop', string $channel = 'sms'): array

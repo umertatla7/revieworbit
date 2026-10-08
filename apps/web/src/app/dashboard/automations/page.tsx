@@ -32,7 +32,7 @@ type Rule = {
   message_template_id: string;
   message_template: Template;
   follow_ups: FollowUp[];
-  runs?: { id: string; status: string; scheduled_count: number; skipped_count: number; created_at: string }[];
+  runs?: { id: string; status: string; scheduled_count: number; skipped_count: number; pending_first_count: number; created_at: string }[];
 };
 type Audience = {
   total_contacts: number;
@@ -138,12 +138,28 @@ export default function AutomationsPage() {
         { method: "POST" },
         true,
       );
-      setMessage(`Scheduled ${result.data.scheduled_count} eligible contact${result.data.scheduled_count === 1 ? "" : "s"}. ${result.data.skipped_count} contact${result.data.skipped_count === 1 ? " was" : "s were"} skipped by consent and safety checks.`);
+      setMessage(`First messages queued immediately for ${result.data.scheduled_count} eligible contact${result.data.scheduled_count === 1 ? "" : "s"}. ${result.data.skipped_count} contact${result.data.skipped_count === 1 ? " was" : "s were"} skipped. Check customer message history for delivery status.`);
       setLaunchRule(null);
       setAudience(null);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to launch this automation.");
+    } finally {
+      setLaunchBusy(false);
+    }
+  }
+  async function sendPendingNow(rule: Rule, runId: string) {
+    setLaunchBusy(true);
+    try {
+      const result = await api<{ data: { queued_count: number } }>(
+        `/api/v1/automations/${rule.id}/runs/${runId}/send-now`,
+        { method: "POST" },
+        true,
+      );
+      setMessage(`${result.data.queued_count} pending first message${result.data.queued_count === 1 ? "" : "s"} queued now. Check customer message history for delivery status.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to queue pending messages.");
     } finally {
       setLaunchBusy(false);
     }
@@ -199,7 +215,7 @@ export default function AutomationsPage() {
           <h2 className="font-semibold">Active journeys</h2>
           <p className="mt-1 text-xs text-ink/45">
             Delays start from visit completion or from the moment you explicitly
-            launch a contact-list journey. Quiet hours are always respected.
+            launch a contact-list journey. The first contact-list message queues immediately; visit messages and follow-ups respect quiet hours.
           </p>
         </header>
         <div className="divide-y divide-ink/8">
@@ -238,6 +254,12 @@ export default function AutomationsPage() {
                   </button>
                 </div>
               </div>
+              {rule.trigger_type === "contacts.manual" && rule.runs?.filter((run) => run.pending_first_count > 0).map((run) => (
+                <div key={run.id} className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-paper p-4">
+                  <p className="text-xs text-ink/60">{run.pending_first_count} first message{run.pending_first_count === 1 ? " is" : "s are"} pending from the launch on {new Date(run.created_at).toLocaleString()}.</p>
+                  <button className="button-secondary text-xs" disabled={launchBusy || rule.status !== "active"} onClick={() => void sendPendingNow(rule, run.id)}>Send pending first messages now</button>
+                </div>
+              ))}
               <div className="mt-5 flex flex-col gap-2 md:flex-row md:items-stretch">
                 {[
                   {
@@ -257,7 +279,7 @@ export default function AutomationsPage() {
                   >
                     <div className="min-w-0 flex-1 rounded-xl bg-paper p-4">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-forest">
-                        Step {index + 1} · {formatDelay(step.delay, rule.trigger_type)}
+                        Step {index + 1} · {formatDelay(step.delay, rule.trigger_type, index === 0)}
                       </p>
                       <p className="mt-2 truncate text-sm font-semibold">
                         {step.template?.name}
@@ -352,7 +374,7 @@ function AutomationDialog({
       trigger_type: triggerType,
       location_id: locationId || null,
       message_template_id: steps[0].template,
-      delay_minutes: steps[0].delay,
+      delay_minutes: triggerType === "contacts.manual" ? 0 : steps[0].delay,
       frequency_limit_days: Number(data.get("frequency_limit_days")),
       cancel_follow_up_after_click: true,
       status: data.get("status"),
@@ -388,7 +410,7 @@ function AutomationDialog({
             <>The timer begins when the POS or a staff member marks a visit completed—not at the booked appointment time.</>
           ) : (
             <>The timer begins only after you review the eligible audience and click Send. Contacts without valid SMS consent are skipped automatically.</>
-          )}{" "}Safe overnight delivery hours are applied automatically.
+          )}{" "}{triggerType === "contacts.manual" ? "The first message queues immediately. Later follow-ups respect quiet hours." : "Quiet hours may move the scheduled time to the next allowed delivery hour."}
         </div>
         <fieldset className="mt-6">
           <legend className="label">Start this automation</legend>
@@ -540,7 +562,9 @@ function AutomationDialog({
                   </span>
                 )}
               </label>
-              <DelayInput
+              {triggerType === "contacts.manual" && index === 0 ? (
+                <div className="rounded-lg bg-forest/5 p-3 text-xs"><strong className="block text-forest">Send immediately</strong><span className="mt-1 block text-ink/50">When you confirm the audience and click Send.</span></div>
+              ) : <DelayInput
                 minutes={step.delay}
                 onChange={(delay) =>
                   setSteps(
@@ -549,7 +573,7 @@ function AutomationDialog({
                     ),
                   )
                 }
-              />
+              />}
               <div>
                 {index > 0 && (
                   <>
@@ -647,7 +671,8 @@ function DelayInput({
     </label>
   );
 }
-function formatDelay(minutes: number, trigger: Rule["trigger_type"]) {
+function formatDelay(minutes: number, trigger: Rule["trigger_type"], initial = false) {
+  if (trigger === "contacts.manual" && initial) return "Immediately on launch";
   const suffix = trigger === "contacts.manual" ? "after launch" : "after visit";
   if (minutes < 60) return `${minutes} min ${suffix}`;
   if (minutes < 1440) return `${Math.round(minutes / 60)} hr ${suffix}`;
@@ -682,7 +707,7 @@ function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule;
         <p className="mt-5 rounded-xl border border-forest/15 bg-mint/15 p-4 text-xs leading-5 text-ink/65">
           Only active contacts with a valid SMS consent record are included. Suppressed contacts, confirmed reviewers, recently messaged contacts, and contacts already scheduled are excluded. The exact saved template is sent; no “test” or “via B Review” text is added.
         </p>
-        {audience.first_message_at && <p className="mt-3 text-xs text-ink/50">First messages are scheduled for {new Date(audience.first_message_at).toLocaleString()}.</p>}
+        {audience.first_message_at && <p className="mt-3 text-xs text-ink/50">First messages queue immediately when you click Send. Twilio delivery status will appear in each customer’s message history. Follow-ups respect quiet hours.</p>}
         <div className="mt-6 flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || audience.eligible_contacts === 0} onClick={onLaunch}>{busy ? "Scheduling…" : `Send to ${audience.eligible_contacts} eligible contact${audience.eligible_contacts === 1 ? "" : "s"}`}</button></div>
       </div>
     </div>

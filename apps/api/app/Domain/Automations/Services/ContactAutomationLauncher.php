@@ -6,6 +6,7 @@ use App\Domain\Automations\Models\AutomationDispatch;
 use App\Domain\Automations\Models\AutomationRule;
 use App\Domain\Automations\Models\AutomationRun;
 use App\Domain\Customers\Models\Customer;
+use App\Domain\Messaging\Jobs\SendAutomationDispatch;
 use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Tenancy\Enums\RecordStatus;
 use App\Domain\Tenancy\Services\PlanEntitlements;
@@ -42,7 +43,7 @@ class ContactAutomationLauncher
             'skipped_summary' => $skipped,
             'first_message_at' => $eligible->isEmpty()
                 ? null
-                : $this->outsideQuietHours($now->addMinutes($rule->delay_minutes), $rule)->toIso8601String(),
+                : $now->toIso8601String(),
         ];
     }
 
@@ -77,7 +78,7 @@ class ContactAutomationLauncher
 
             $steps = collect([[
                 'sequence_number' => 0,
-                'delay_minutes' => $rule->delay_minutes,
+                'delay_minutes' => 0,
                 'follow_up_id' => null,
                 'cancel_after_click' => false,
             ]])->concat($rule->followUps->where('status', 'active')->map(fn ($followUp): array => [
@@ -100,7 +101,7 @@ class ContactAutomationLauncher
 
             foreach ($eligible as $customer) {
                 foreach ($steps as $step) {
-                    AutomationDispatch::create([
+                    $dispatch = AutomationDispatch::create([
                         'business_id' => $rule->business_id,
                         'visit_id' => null,
                         'automation_run_id' => $run->id,
@@ -108,17 +109,40 @@ class ContactAutomationLauncher
                         'automation_rule_id' => $rule->id,
                         'sequence_number' => $step['sequence_number'],
                         'decision' => 'scheduled',
-                        'scheduled_for' => $this->outsideQuietHours($now->addMinutes($step['delay_minutes']), $rule),
+                        'scheduled_for' => $step['sequence_number'] === 0
+                            ? $now
+                            : $this->outsideQuietHours($now->addMinutes($step['delay_minutes']), $rule),
                         'decision_context' => [
                             'trigger_type' => 'contacts.manual',
                             'follow_up_id' => $step['follow_up_id'],
                             'cancel_after_click' => $step['cancel_after_click'],
                         ],
                     ]);
+                    if ($step['sequence_number'] === 0) {
+                        SendAutomationDispatch::dispatch($dispatch->id)->onQueue('messaging')->afterCommit();
+                    }
                 }
             }
 
             return $run->fresh(['rule', 'dispatches']);
+        });
+    }
+
+    public function sendPendingNow(AutomationRule $rule, AutomationRun $run): int
+    {
+        $rule->loadMissing(['business.messagingConfiguration', 'location', 'messageTemplate', 'followUps.messageTemplate']);
+        $this->assertLaunchable($rule);
+        abort_unless($run->business_id === $rule->business_id && $run->automation_rule_id === $rule->id, 404);
+
+        return DB::transaction(function () use ($run): int {
+            $pending = $run->dispatches()->where('sequence_number', 0)->where('decision', 'scheduled')
+                ->whereDoesntHave('delivery')->lockForUpdate()->get();
+            foreach ($pending as $dispatch) {
+                $dispatch->update(['scheduled_for' => now()]);
+                SendAutomationDispatch::dispatch($dispatch->id)->onQueue('messaging')->afterCommit();
+            }
+
+            return $pending->count();
         });
     }
 
