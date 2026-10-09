@@ -29,6 +29,12 @@ class SendAutomationDispatch implements ShouldBeUnique, ShouldQueue
         if ($dispatch?->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now())) {
             $dispatch->loadMissing(['customer', 'visit.customer', 'run']);
             $customer = $dispatch->customer ?? $dispatch->visit?->customer;
+            if (! $customer || $customer->status !== 'active') {
+                $dispatch->update(['decision' => 'cancelled', 'reason_code' => 'customer_inactive']);
+                $this->completeRunWhenFinished($dispatch);
+
+                return;
+            }
             if ($customer?->review_request_status === 'review_confirmed') {
                 $dispatch->update(['decision' => 'cancelled', 'reason_code' => 'review_already_confirmed']);
                 $this->completeRunWhenFinished($dispatch);

@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Services\Auditor;
 use App\Domain\Customers\Models\Customer;
+use App\Domain\Customers\Services\DeleteCustomer;
 use App\Http\Controllers\Controller;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +22,7 @@ class CustomerController extends Controller
         $business = $request->attributes->get('business');
         $customers = Customer::query()
             ->where('business_id', $business->id)
+            ->where('status', '!=', 'archived')
             ->with([
                 'consents' => fn ($query) => $query->latest('recorded_at'),
                 'suppressions' => fn ($query) => $query->whereNull('released_at'),
@@ -136,6 +140,18 @@ class CustomerController extends Controller
         return response()->json(['data' => $model->fresh(['consents', 'suppressions'])]);
     }
 
+    public function destroy(Request $request, string $customer, DeleteCustomer $deleteCustomer, Auditor $auditor): JsonResponse
+    {
+        $model = $this->scoped($request, $customer);
+        Gate::authorize('delete', $model);
+        DB::transaction(function () use ($deleteCustomer, $model, $auditor, $request): void {
+            $deleteCustomer->handle($model);
+            $auditor->record($request, 'customer.deleted', $model);
+        });
+
+        return response()->json(status: 204);
+    }
+
     public function consent(Request $request, string $customer, Auditor $auditor): JsonResponse
     {
         $model = $this->scoped($request, $customer);
@@ -234,7 +250,7 @@ class CustomerController extends Controller
         $request->validate(['file' => ['required', 'file', 'mimes:csv,txt', 'max:2048'], 'preview' => ['sometimes', 'boolean']]);
         $handle = fopen($request->file('file')->getRealPath(), 'rb');
         abort_unless(is_resource($handle), 422, 'The CSV file could not be read.');
-        $headers = array_map(fn ($value): string => strtolower(trim((string) $value)), fgetcsv($handle, null, ',', '"', '') ?: []);
+        $headers = array_map(fn ($value): string => strtolower(trim(str_replace("\xEF\xBB\xBF", '', (string) $value))), fgetcsv($handle, null, ',', '"', '') ?: []);
         $required = ['first_name', 'phone'];
         if (array_diff($required, $headers) !== []) {
             fclose($handle);
@@ -243,9 +259,13 @@ class CustomerController extends Controller
 
         $rows = [];
         $errors = [];
+        $seenPhones = [];
         $line = 1;
         while (($values = fgetcsv($handle, null, ',', '"', '')) !== false) {
             $line++;
+            if (count(array_filter($values, fn ($value): bool => trim((string) $value) !== '')) === 0) {
+                continue;
+            }
             if ($line > 501) {
                 $errors[] = ['row' => $line, 'reason' => 'The import is limited to 500 customers.'];
                 break;
@@ -255,7 +275,16 @@ class CustomerController extends Controller
 
                 continue;
             }
-            $row = array_combine($headers, $values);
+            $row = array_combine($headers, array_map(fn ($value): string => trim((string) $value), $values));
+            $row['sms_consent'] = strtolower($row['sms_consent'] ?? '');
+            $row['consent_source'] = strtolower($row['consent_source'] ?? '');
+            try {
+                $row['phone'] = $this->phoneFields($row['phone'] ?? '')['phone_e164'];
+            } catch (ValidationException $exception) {
+                $errors[] = ['row' => $line, 'reason' => $exception->errors()['phone'][0]];
+
+                continue;
+            }
             $validator = Validator::make($row, [
                 'first_name' => ['required', 'string', 'max:100'],
                 'last_name' => ['nullable', 'string', 'max:100'],
@@ -265,20 +294,27 @@ class CustomerController extends Controller
                 'consent_source' => ['nullable', Rule::in(['', 'written', 'verbal', 'web_form', 'provider', 'import'])],
             ]);
             if ($validator->fails()) {
-                $errors[] = ['row' => $line, 'reason' => $validator->errors()->first()];
+                $errors[] = ['row' => $line, 'reason' => implode(' ', $validator->errors()->all())];
 
                 continue;
             }
-            $rows[] = $validator->validated();
+            $phoneHash = hash('sha256', $row['phone']);
+            if (isset($seenPhones[$phoneHash]) || Customer::where('business_id', $business->id)->where('phone_hash', $phoneHash)->exists()) {
+                $errors[] = ['row' => $line, 'reason' => 'This phone number already exists in this business or appears earlier in this file.'];
+
+                continue;
+            }
+            $seenPhones[$phoneHash] = true;
+            $rows[$line] = $validator->validated();
         }
         fclose($handle);
 
         if ($request->boolean('preview', true)) {
-            return response()->json(['data' => ['valid_rows' => count($rows), 'preview' => array_slice($rows, 0, 10), 'errors' => $errors]]);
+            return response()->json(['data' => ['valid_rows' => count($rows), 'preview' => array_values(array_slice($rows, 0, 10)), 'errors' => $errors]]);
         }
 
         $created = 0;
-        foreach ($rows as $index => $row) {
+        foreach ($rows as $line => $row) {
             try {
                 $smsConsent = $row['sms_consent'] ?? '';
                 $consentSource = ($row['consent_source'] ?? '') ?: 'import';
@@ -298,7 +334,7 @@ class CustomerController extends Controller
                 }
                 $created++;
             } catch (UniqueConstraintViolationException) {
-                $errors[] = ['row' => $index + 2, 'reason' => 'Duplicate phone number for this business.'];
+                $errors[] = ['row' => $line, 'reason' => 'Duplicate phone number for this business.'];
             }
         }
 
@@ -334,9 +370,17 @@ class CustomerController extends Controller
         if ($phone === null || $phone === '') {
             return ['phone_e164' => null, 'phone_hash' => null];
         }
-        $normalized = preg_replace('/[^0-9+]/', '', $phone) ?? '';
+        if (! preg_match('/^[+0-9\s().-]+$/', $phone)) {
+            throw ValidationException::withMessages(['phone' => ['Use a US/Canada 10-digit phone number or an international number starting with + and its country code.']]);
+        }
+        $normalized = preg_replace('/[\s().-]/', '', $phone) ?? '';
+        if (preg_match('/^[0-9]{10}$/', $normalized)) {
+            $normalized = '+1'.$normalized;
+        } elseif (preg_match('/^1[0-9]{10}$/', $normalized)) {
+            $normalized = '+'.$normalized;
+        }
         if (! preg_match('/^\+[1-9][0-9]{7,14}$/', $normalized)) {
-            throw ValidationException::withMessages(['phone' => ['Use E.164 format, for example +12025550123.']]);
+            throw ValidationException::withMessages(['phone' => ['Use a US/Canada 10-digit phone number or an international number starting with + and its country code.']]);
         }
 
         return ['phone_e164' => $normalized, 'phone_hash' => hash('sha256', $normalized)];
@@ -344,6 +388,6 @@ class CustomerController extends Controller
 
     private function scoped(Request $request, string $id): Customer
     {
-        return Customer::where('business_id', $request->attributes->get('business')->id)->findOrFail($id);
+        return Customer::where('business_id', $request->attributes->get('business')->id)->where('status', '!=', 'archived')->findOrFail($id);
     }
 }

@@ -153,6 +153,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::patch('/customers/{customer}/review-status', [CustomerController::class, 'reviewStatus']);
                 Route::post('/customers', [CustomerController::class, 'store']);
                 Route::patch('/customers/{customer}', [CustomerController::class, 'update']);
+                Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
 
                 Route::post('/templates/preview', [TemplateController::class, 'preview']);
                 Route::post('/templates', [TemplateController::class, 'store']);

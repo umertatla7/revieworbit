@@ -26,6 +26,7 @@ class ManualReviewMessageSender
         return DB::transaction(function () use ($source, $customBody, $userId): MessageDelivery {
             $source->loadMissing(['customer.consents', 'customer.suppressions', 'customer.business.messagingConfiguration', 'visit', 'location', 'deliveries.template']);
             $customer = $source->customer ?? throw new RuntimeException('The customer is no longer available.');
+            abort_unless($customer->fresh()?->status === 'active', 422, 'This customer is inactive or deleted.');
             $business = $customer->business;
             abort_unless($business->id === $source->business_id && $source->location->business_id === $business->id, 403);
             $this->costEstimator->assertCustomerAvailable($business, $customer->id);

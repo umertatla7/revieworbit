@@ -75,6 +75,9 @@ class AutomationEvaluator
         if ($visit->customer === null) {
             return 'customer_missing';
         }
+        if ($visit->customer->status !== 'active') {
+            return 'customer_inactive';
+        }
         if ($visit->customer->phone_e164 === null) {
             return 'phone_missing';
         }

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\Customers\Models\Customer;
+use App\Domain\Customers\Policies\CustomerPolicy;
 use App\Domain\Messaging\Contracts\MessagingProvider;
 use App\Domain\Messaging\Services\FakeMessagingProvider;
 use App\Domain\Messaging\Services\TwilioCredentials;
@@ -10,6 +12,7 @@ use App\Domain\Tenancy\Services\PlatformMailConfigurator;
 use App\Models\PersonalAccessToken;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
@@ -34,6 +37,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(PlatformMailConfigurator $mailConfigurator): void
     {
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+        Gate::policy(Customer::class, CustomerPolicy::class);
         $mailConfigurator->apply();
         Queue::before(function (JobProcessing $event) use ($mailConfigurator): void {
             $mailConfigurator->apply();

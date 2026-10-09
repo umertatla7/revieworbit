@@ -137,6 +137,22 @@ export default function CustomersPage() {
     }
   }
 
+  async function removeCustomer(customer: Customer) {
+    if (!window.confirm(`Delete ${customer.first_name} ${customer.last_name ?? ""}? This removes the customer from your contact list and cancels pending messages. Message and opt-out history will be retained.`)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await api(`/api/v1/customers/${customer.id}`, { method: "DELETE" }, true);
+      setSelected(null);
+      await load();
+      setMessage("Customer deleted. Pending messages have been cancelled.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete customer.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function create(formData: FormData) {
     setBusy(true);
     setMessage("");
@@ -467,13 +483,13 @@ export default function CustomersPage() {
                   <span className="text-xs capitalize text-ink/55">
                     {customer.source}
                   </span>
-                  <button
+                  <div className="flex flex-col gap-2"><button
                     disabled={busy}
                     className="rounded-lg border border-forest/20 px-3 py-2 text-xs font-semibold text-forest"
                     onClick={() => void openCustomer(customer.id)}
                   >
                     View
-                  </button>
+                  </button><button disabled={busy} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700" onClick={() => void removeCustomer(customer)}>Delete</button></div>
                 </article>
               );
             })
@@ -519,6 +535,7 @@ export default function CustomersPage() {
           onSuppression={() => void changeSuppression(selected)}
           onReviewStatus={() => void changeReviewStatus(selected)}
           onResend={resend}
+          onDelete={() => void removeCustomer(selected)}
         />
       )}
       {dialog === "add" && (
@@ -549,6 +566,7 @@ function CustomerDialog({
   onSuppression,
   onReviewStatus,
   onResend,
+  onDelete,
 }: {
   customer: Customer;
   busy: boolean;
@@ -556,6 +574,7 @@ function CustomerDialog({
   onSuppression: () => void;
   onReviewStatus: () => void;
   onResend: (link: ReviewLink, data: FormData) => void;
+  onDelete: () => void;
 }) {
   const latestLink = customer.review_links?.[0];
   return (
@@ -586,6 +605,7 @@ function CustomerDialog({
             : "Suppress SMS"}
         </button><button disabled={busy} className={customer.review_request_status === "review_confirmed" ? "button-secondary" : "rounded-lg border border-forest/20 px-4 py-2 text-xs font-semibold text-forest"} onClick={onReviewStatus}>{customer.review_request_status === "review_confirmed" ? "Allow future review requests" : "Mark review as confirmed"}</button></div>
         <p className="rounded-xl bg-paper p-3 text-[11px] leading-5 text-ink/50">A link click does not prove a review was submitted. Mark a review confirmed only when the customer confirms it or your team can match it to a provider review.</p>
+        <button disabled={busy} onClick={onDelete} className="rounded-lg border border-red-200 px-4 py-2 text-xs font-semibold text-red-700">Delete customer</button>
         <section>
           <h3 className="text-sm font-semibold">Visit history</h3>
           <div className="mt-3 overflow-hidden rounded-xl border border-ink/8">
@@ -763,6 +783,7 @@ function ImportDialog({
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
   function downloadSample() {
     const csv =
       "first_name,last_name,email,phone,sms_consent,consent_source\nAva,Morgan,ava@example.com,+12025550123,yes,written\n";
@@ -776,7 +797,8 @@ function ImportDialog({
     URL.revokeObjectURL(url);
   }
   async function inspect() {
-    if (!file) return;
+    if (!file || working) return;
+    setWorking(true);
     setError("");
     setStatus("Uploading and checking rows…");
     setProgress(25);
@@ -799,10 +821,13 @@ function ImportDialog({
           : "Unable to validate the CSV.",
       );
       setProgress(0);
+    } finally {
+      setWorking(false);
     }
   }
   async function commit() {
-    if (!file) return;
+    if (!file || working) return;
+    setWorking(true);
     setError("");
     setProgress(75);
     setStatus("Creating customer records…");
@@ -810,19 +835,21 @@ function ImportDialog({
     data.set("file", file);
     data.set("preview", "0");
     try {
-      const result = await api<{ data: { created: number; skipped: number } }>(
+      const result = await api<{ data: { created: number; skipped: number; errors: { row: number; reason: string }[] } }>(
         "/api/v1/customers/import-csv",
         { method: "POST", body: data },
         true,
       );
       setProgress(100);
       onComplete(
-        `Import complete: ${result.data.created} created, ${result.data.skipped} skipped.`,
+        `Import complete: ${result.data.created} created, ${result.data.skipped} skipped. ${result.data.errors.map((item) => `Row ${item.row}: ${item.reason}`).join(" ")}`,
       );
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to import the CSV.",
       );
+    } finally {
+      setWorking(false);
     }
   }
   return (
@@ -836,7 +863,8 @@ function ImportDialog({
               </p>
               <p className="mt-1 text-[11px] text-ink/45">
                 First name and phone are required. Last name and email are
-                optional. Set sms_consent to yes only when that row has valid
+                optional. US/Canada numbers such as (202) 555-0123 are formatted automatically.
+                Consent values are not case-sensitive. Set sms_consent to yes only when that row has valid
                 permission, and record written, verbal, web_form, provider, or
                 import as the consent_source.
               </p>
@@ -851,10 +879,13 @@ function ImportDialog({
             className="sr-only"
             type="file"
             accept=".csv,text/csv"
+            disabled={working}
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null);
               setPreview(null);
               setProgress(0);
+              setError("");
+              setStatus("");
             }}
           />
           <span className="text-sm font-semibold">
@@ -892,6 +923,9 @@ function ImportDialog({
             <span className="ml-2 text-ink/45">
               · {preview.errors.length} issues
             </span>
+            {preview.errors.length > 0 && <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto text-red-800" aria-label="Import issues">
+              {preview.errors.map((item, index) => <li key={`${item.row}-${index}`}><strong>Row {item.row}:</strong> {item.reason}</li>)}
+            </ul>}
           </div>
         )}
         <footer className="flex justify-end gap-2">
@@ -901,18 +935,18 @@ function ImportDialog({
           {!preview ? (
             <button
               className="button-primary"
-              disabled={!file}
+              disabled={!file || working}
               onClick={inspect}
             >
-              Check file
+              {working ? "Checking…" : "Check file"}
             </button>
           ) : (
             <button
               className="button-primary"
-              disabled={preview.valid_rows === 0}
+              disabled={preview.valid_rows === 0 || working}
               onClick={commit}
             >
-              Import {preview.valid_rows} customers
+              {working ? "Importing…" : `Import ${preview.valid_rows} customers`}
             </button>
           )}
         </footer>

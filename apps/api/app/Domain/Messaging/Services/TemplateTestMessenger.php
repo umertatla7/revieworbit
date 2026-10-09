@@ -28,6 +28,7 @@ class TemplateTestMessenger
 
     public function send(MessageTemplate $template, Customer $customer, string $requestedByUserId, bool $trialRecipientVerified): TestMessageDelivery
     {
+        abort_unless($customer->fresh()?->status === 'active', 422, 'This customer is inactive or deleted.');
         $channel = $template->channel === 'mms' ? 'sms' : $template->channel;
         if (! in_array($channel, ['sms', 'whatsapp'], true)) {
             throw ValidationException::withMessages(['template' => ['This template channel cannot be tested.']]);

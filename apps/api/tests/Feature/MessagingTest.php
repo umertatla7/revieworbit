@@ -444,6 +444,43 @@ class MessagingTest extends TestCase
         $this->assertDatabaseCount('message_deliveries', 1);
     }
 
+    public function test_customer_deletion_is_scoped_and_cancels_pending_messages_while_retaining_history(): void
+    {
+        [$owner, $business, , $customer, $template, $rule, $dispatch, $visit] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $delivery = app(MessagingManager::class)->send($dispatch);
+        $pending = AutomationDispatch::create(['business_id' => $business->id, 'visit_id' => $visit->id, 'automation_rule_id' => $rule->id, 'sequence_number' => 1, 'decision' => 'scheduled', 'scheduled_for' => now()->addDay()]);
+        $manual = AutomationDispatch::create(['business_id' => $business->id, 'customer_id' => $customer->id, 'automation_rule_id' => $rule->id, 'sequence_number' => 0, 'decision' => 'scheduled', 'scheduled_for' => now()]);
+        $suppression = $customer->suppressions()->create(['business_id' => $business->id, 'channel' => 'sms', 'phone_e164' => $customer->phone_e164, 'reason' => 'opt_out', 'source' => 'twilio', 'suppressed_at' => now()]);
+        [$otherOwner, $otherBusiness, , $otherCustomer] = $this->fixture('Other business');
+        $url = '/api/v1/customers/'.$customer->id;
+        $this->actingAs($otherOwner)->deleteJson($url, [], ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $viewer = User::factory()->create();
+        BusinessUser::create(['business_id' => $business->id, 'user_id' => $viewer->id, 'role' => BusinessRole::Viewer]);
+        $headers = ['X-Business-ID' => $business->id];
+        $this->actingAs($viewer)->deleteJson($url, [], $headers)->assertForbidden();
+        $this->actingAs($owner)->deleteJson($url, [], $headers)->assertNoContent();
+        $this->getJson('/api/v1/customers', $headers)->assertOk()->assertJsonPath('meta.total', 0);
+        $this->getJson($url, $headers)->assertNotFound();
+        $this->patchJson($url, ['status' => 'active'], $headers)->assertNotFound();
+        $this->assertSame('active', $otherCustomer->fresh()->status);
+        $this->assertSame('archived', $customer->fresh()->status);
+        $this->assertSame('cancelled', $pending->fresh()->decision);
+        $this->assertSame('customer_deleted', $manual->fresh()->reason_code);
+        $this->assertDatabaseHas('message_deliveries', ['id' => $delivery->id, 'customer_id' => $customer->id]);
+        $this->assertDatabaseHas('suppression_entries', ['id' => $suppression->id, 'released_at' => null]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'customer.deleted', 'target_id' => $customer->id, 'actor_user_id' => $owner->id]);
+        (new SendAutomationDispatch($pending->id))->handle(app(MessagingManager::class));
+        $this->assertSame(1, $customer->messageDeliveries()->count());
+        $this->postJson('/api/v1/templates/'.$template->id.'/test', ['customer_id' => $customer->id], $headers)
+            ->assertUnprocessable()->assertJsonPath('message', 'This customer is inactive or deleted.');
+        $this->postJson('/api/v1/review-links/'.$delivery->review_link_id.'/resend', ['body' => 'Hello {{customer_first_name}} {{review_link}}'], $headers)
+            ->assertUnprocessable()->assertJsonPath('message', 'This customer is inactive or deleted.');
+        $template->update(['location_id' => $rule->location_id]);
+        $rule->update(['trigger_type' => 'contacts.manual']);
+        $this->getJson('/api/v1/automations/'.$rule->id.'/audience', $headers)->assertOk()->assertJsonPath('data.eligible_contacts', 0);
+    }
+
     private function fixture(string $name = 'AL Barber Shop', string $channel = 'sms'): array
     {
         $owner = User::factory()->create();

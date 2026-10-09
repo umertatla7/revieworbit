@@ -152,6 +152,7 @@ class ContactAutomationLauncher
         $frequencyStart = $now->subDays($rule->frequency_limit_days);
         $customers = Customer::query()
             ->where('business_id', $rule->business_id)
+            ->where('status', '!=', 'archived')
             ->with([
                 'consents' => fn ($query) => $query->where('channel', 'sms')->latest('recorded_at'),
                 'suppressions' => fn ($query) => $query->where('channel', 'sms')->whereNull('released_at'),

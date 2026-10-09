@@ -55,6 +55,7 @@ class MessagingManager
             $customer = $visit?->customer ?? $dispatch->customer;
             $location = $visit?->location ?? $dispatch->rule->location;
             abort_unless($business && $customer && $location, 422, 'The automation is missing its business, customer, or location.');
+            abort_unless($customer->fresh()?->status === 'active', 422, 'This customer is inactive or deleted.');
             abort_unless($customer->business_id === $business->id && $location->business_id === $business->id, 403, 'The automation context is invalid.');
             $this->costEstimator->assertCustomerAvailable($business, $customer->id);
             $this->trialLimiter->assertMaySend($business);

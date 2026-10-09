@@ -199,6 +199,36 @@ class MilestoneSixTest extends TestCase
         $this->assertDatabaseHas('customers', ['business_id' => $business->id, 'first_name' => 'Ava, Marie']);
     }
 
+    public function test_csv_import_accepts_spreadsheet_phone_formats_and_case_insensitive_consent(): void
+    {
+        [$owner, $business] = $this->fixture();
+        $headers = ['X-Business-ID' => $business->id];
+        $file = UploadedFile::fake()->createWithContent('customers.csv',
+            "\xEF\xBB\xBFfirst_name,last_name,email,phone,sms_consent,consent_source\nAva,Jones,,(202) 555 0188,yes,Verbal\nNoah,Jones,,202) 555-0189, Yes ,Written\n\n");
+        $this->actingAs($owner)->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '1'], $headers)
+            ->assertOk()->assertJsonPath('data.valid_rows', 2)->assertJsonPath('data.errors', [])
+            ->assertJsonPath('data.preview.0.phone', '+12025550188')->assertJsonPath('data.preview.1.consent_source', 'written');
+        $this->assertDatabaseMissing('customers', ['business_id' => $business->id, 'first_name' => 'Ava']);
+        $this->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '0'], $headers)
+            ->assertAccepted()->assertJsonPath('data.created', 2)->assertJsonPath('data.skipped', 0);
+        $ava = Customer::where('business_id', $business->id)->where('first_name', 'Ava')->firstOrFail();
+        $this->assertDatabaseHas('customer_consents', ['customer_id' => $ava->id, 'source' => 'verbal', 'status' => 'granted']);
+        $this->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '1'], $headers)
+            ->assertOk()->assertJsonPath('data.valid_rows', 0)->assertJsonPath('data.errors.0.row', 2)->assertJsonPath('data.errors.1.row', 3);
+    }
+
+    public function test_csv_import_reports_original_row_numbers_and_rejects_invalid_values_and_duplicate_phones(): void
+    {
+        [$owner, $business] = $this->fixture();
+        $file = UploadedFile::fake()->createWithContent('customers.csv',
+            "first_name,phone,sms_consent,consent_source\nBad,2025550188extension,yes,written\nAva,12025550188,NO,\nDuplicate,+1 (202) 555-0188,yes,written\nNoah,2025550189,maybe,written\n");
+        $this->actingAs($owner)->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '0'], ['X-Business-ID' => $business->id])
+            ->assertAccepted()->assertJsonPath('data.created', 1)->assertJsonPath('data.skipped', 3)
+            ->assertJsonPath('data.errors.0.row', 2)->assertJsonPath('data.errors.1.row', 4)->assertJsonPath('data.errors.2.row', 5);
+        $ava = Customer::where('business_id', $business->id)->where('first_name', 'Ava')->firstOrFail();
+        $this->assertDatabaseMissing('customer_consents', ['customer_id' => $ava->id]);
+    }
+
     public function test_csv_import_records_sms_consent_only_for_rows_that_explicitly_include_it(): void
     {
         [$owner, $business] = $this->fixture();
