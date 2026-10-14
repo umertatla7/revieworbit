@@ -371,6 +371,77 @@ class MessagingTest extends TestCase
             ->assertJsonValidationErrors('message_template_id');
     }
 
+    public function test_new_audience_excludes_previous_enrollments_but_all_can_include_them(): void
+    {
+        Queue::fake();
+        [$owner, $business, $location, $customer, $template, $rule] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $template->update(['location_id' => $location->id]);
+        $rule->update(['trigger_type' => 'contacts.manual', 'frequency_limit_days' => 0]);
+        $launcher = app(ContactAutomationLauncher::class);
+        $run = $launcher->launch($rule, $owner->id);
+        $run->dispatches()->update(['decision' => 'cancelled']);
+        $this->assertSame(0, $launcher->preview($rule)['eligible_contacts']);
+        $this->assertSame(1, $launcher->preview($rule)['skipped_summary']['previously_included']);
+        $this->assertSame(1, $launcher->preview($rule, audienceMode: 'all')['eligible_contacts']);
+        $new = $customer->replicate();
+        $new->phone_e164 = '+12025550987';
+        $new->phone_hash = hash('sha256', $new->phone_e164);
+        $new->save();
+        foreach ($customer->consents as $consent) {
+            $copy = $consent->replicate();
+            $copy->customer_id = $new->id;
+            $copy->save();
+        }
+        $this->assertSame(1, $launcher->preview($rule)['eligible_contacts']);
+        $next = $launcher->launch($rule, $owner->id);
+        $this->assertSame([$new->id], $next->dispatches()->pluck('customer_id')->all());
+        $this->assertSame(0, $launcher->preview($rule)['eligible_contacts']);
+        $this->actingAs($owner)->getJson('/api/v1/automations/'.$rule->id.'/audience?audience_mode=invalid', ['X-Business-ID' => $business->id])->assertUnprocessable();
+    }
+
+    public function test_bulk_customer_deletion_is_atomic_authorized_and_cancels_pending_messages(): void
+    {
+        Queue::fake();
+        [$owner, $business, , $customer, , , $dispatch] = $this->fixture();
+        [, , , $foreign] = $this->fixture('Other');
+        $headers = ['X-Business-ID' => $business->id];
+        $this->actingAs($owner)->postJson('/api/v1/customers/bulk-delete', ['customer_ids' => [$customer->id, $foreign->id]], $headers)->assertNotFound();
+        $this->assertSame('active', $customer->fresh()->status);
+        BusinessUser::where('business_id', $business->id)->where('user_id', $owner->id)->update(['role' => 'viewer']);
+        $this->postJson('/api/v1/customers/bulk-delete', ['customer_ids' => [$customer->id]], $headers)->assertForbidden();
+        BusinessUser::where('business_id', $business->id)->where('user_id', $owner->id)->update(['role' => 'owner']);
+        $this->postJson('/api/v1/customers/bulk-delete', ['customer_ids' => []], $headers)->assertUnprocessable();
+        $this->postJson('/api/v1/customers/bulk-delete', ['customer_ids' => [$customer->id, $customer->id]], $headers)->assertUnprocessable();
+        $second = $customer->replicate();
+        $second->phone_e164 = '+12025550986';
+        $second->phone_hash = hash('sha256', $second->phone_e164);
+        $second->save();
+        $this->postJson('/api/v1/customers/bulk-delete', ['customer_ids' => [$customer->id, $second->id]], $headers)->assertOk()->assertJsonPath('data.deleted_count', 2);
+        $this->assertSame('archived', $customer->fresh()->status);
+        $this->assertSame('archived', $second->fresh()->status);
+        $this->assertSame('active', $foreign->fresh()->status);
+        $this->assertSame('cancelled', $dispatch->fresh()->decision);
+    }
+
+    public function test_automation_deletion_is_tenant_scoped_cancels_pending_and_retains_history(): void
+    {
+        Queue::fake();
+        [$owner, $business, , , , $rule, $dispatch] = $this->fixture();
+        [$otherOwner, $otherBusiness] = $this->fixture('Other');
+        $this->actingAs($otherOwner)->deleteJson('/api/v1/automations/'.$rule->id, [], ['X-Business-ID' => $otherBusiness->id])->assertNotFound();
+        $headers = ['X-Business-ID' => $business->id];
+        BusinessUser::where('business_id', $business->id)->where('user_id', $owner->id)->update(['role' => 'viewer']);
+        $this->actingAs($owner)->deleteJson('/api/v1/automations/'.$rule->id, [], $headers)->assertForbidden();
+        BusinessUser::where('business_id', $business->id)->where('user_id', $owner->id)->update(['role' => 'owner']);
+        $this->actingAs($owner)->deleteJson('/api/v1/automations/'.$rule->id, [], $headers)->assertOk();
+        $this->assertSame('archived', $rule->fresh()->status);
+        $this->assertSame('cancelled', $dispatch->fresh()->decision);
+        $this->getJson('/api/v1/automations', $headers)->assertOk()->assertJsonCount(0, 'data');
+        $this->patchJson('/api/v1/automations/'.$rule->id, ['status' => 'active'], $headers)->assertNotFound();
+        $this->assertDatabaseHas('automation_dispatches', ['id' => $dispatch->id]);
+    }
+
     public function test_contact_list_automation_previews_only_consented_contacts_and_sends_without_a_visit(): void
     {
         Queue::fake();

@@ -14,6 +14,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -23,6 +24,7 @@ class AutomationController extends Controller
     {
         $businessId = $request->attributes->get('business')->id;
         $rules = AutomationRule::where('business_id', $businessId)
+            ->where('status', '!=', 'archived')
             ->with(['location', 'messageTemplate.reviewDestination', 'followUps.messageTemplate.reviewDestination', 'runs' => fn ($query) => $query->withCount([
                 'dispatches as pending_first_count' => fn ($dispatches) => $dispatches->where('sequence_number', 0)->where('decision', 'scheduled')->whereDoesntHave('delivery'),
             ])->latest()->limit(3)])
@@ -63,7 +65,7 @@ class AutomationController extends Controller
     public function update(Request $request, string $automation, Auditor $auditor, PlanEntitlements $entitlements): JsonResponse
     {
         $businessId = $request->attributes->get('business')->id;
-        $rule = AutomationRule::where('business_id', $businessId)->findOrFail($automation);
+        $rule = AutomationRule::where('business_id', $businessId)->where('status', '!=', 'archived')->findOrFail($automation);
         $data = $this->validated($request, true);
         if (($data['trigger_type'] ?? $rule->trigger_type) === 'contacts.manual') {
             $data['delay_minutes'] = 0;
@@ -105,15 +107,19 @@ class AutomationController extends Controller
     {
         $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
 
-        return response()->json(['data' => $launcher->preview($rule)]);
+        $data = $request->validate(['audience_mode' => ['sometimes', Rule::in(['new', 'all'])]]);
+
+        return response()->json(['data' => $launcher->preview($rule, audienceMode: $data['audience_mode'] ?? 'new')]);
     }
 
     public function launch(Request $request, string $automation, ContactAutomationLauncher $launcher, Auditor $auditor): JsonResponse
     {
         $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
-        $run = $launcher->launch($rule, $request->user()->id);
+        $data = $request->validate(['audience_mode' => ['sometimes', Rule::in(['new', 'all'])]]);
+        $run = $launcher->launch($rule, $request->user()->id, audienceMode: $data['audience_mode'] ?? 'new');
         $auditor->record($request, 'automation.contact_list_launched', $run, [
             'automation_rule_id' => $rule->id,
+            'audience_mode' => $data['audience_mode'] ?? 'new',
             'scheduled_count' => $run->scheduled_count,
             'skipped_count' => $run->skipped_count,
         ]);
@@ -130,6 +136,23 @@ class AutomationController extends Controller
         $auditor->record($request, 'automation.pending_first_messages_queued', $model, ['queued_count' => $count]);
 
         return response()->json(['data' => ['queued_count' => $count]], 202);
+    }
+
+    public function destroy(Request $request, string $automation, Auditor $auditor): JsonResponse
+    {
+        DB::transaction(function () use ($request, $automation, $auditor): void {
+            $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)
+                ->where('status', '!=', 'archived')->lockForUpdate()->findOrFail($automation);
+            Gate::authorize('delete', $rule);
+            $rule->update(['status' => 'archived']);
+            $cancelled = $rule->dispatches()->where('business_id', $rule->business_id)
+                ->where('decision', 'scheduled')->whereDoesntHave('delivery')
+                ->update(['decision' => 'cancelled', 'reason_code' => 'automation_deleted']);
+            $rule->runs()->where('status', 'scheduled')->update(['status' => 'cancelled', 'completed_at' => now()]);
+            $auditor->record($request, 'automation.deleted', $rule, ['cancelled_count' => $cancelled]);
+        });
+
+        return response()->json(['message' => 'Automation deleted. Pending messages cancelled; message history retained.']);
     }
 
     private function validated(Request $request, bool $partial = false): array

@@ -18,7 +18,7 @@ class PlanEntitlements
             ?? SubscriptionPlan::where('code', 'launch')->firstOrFail();
         $locations = $business->locations()->count();
         $templates = MessageTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
-        $automations = AutomationRule::where('business_id', $business->id)->where('status', '!=', 'disabled')->count();
+        $automations = AutomationRule::where('business_id', $business->id)->whereNotIn('status', ['disabled', 'archived'])->count();
         $media = MediaTemplate::where('business_id', $business->id)->where('status', '!=', 'archived')->count();
         $reviewDestinations = LocationReviewDestination::where('business_id', $business->id)->where('status', 'active')->count();
         $credits = MessageDelivery::where('business_id', $business->id)->where('created_at', '>=', now()->startOfMonth())->sum('billable_credits');

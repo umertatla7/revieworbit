@@ -19,12 +19,12 @@ class ContactAutomationLauncher
 {
     public function __construct(private readonly PlanEntitlements $entitlements) {}
 
-    public function preview(AutomationRule $rule, ?CarbonImmutable $now = null): array
+    public function preview(AutomationRule $rule, ?CarbonImmutable $now = null, string $audienceMode = 'new'): array
     {
         $now ??= CarbonImmutable::now('UTC');
         $rule->loadMissing(['business.messagingConfiguration', 'location', 'messageTemplate', 'followUps.messageTemplate']);
         $this->assertLaunchable($rule);
-        [$eligible, $skipped] = $this->classify($rule, $now);
+        [$eligible, $skipped] = $this->classify($rule, $now, $audienceMode);
         $limits = $this->entitlements->for($rule->business);
         $alreadyCounted = MessageDelivery::query()
             ->where('business_id', $rule->business_id)
@@ -47,15 +47,15 @@ class ContactAutomationLauncher
         ];
     }
 
-    public function launch(AutomationRule $rule, string $requestedByUserId, ?CarbonImmutable $now = null): AutomationRun
+    public function launch(AutomationRule $rule, string $requestedByUserId, ?CarbonImmutable $now = null, string $audienceMode = 'new'): AutomationRun
     {
         $now ??= CarbonImmutable::now('UTC');
 
-        return DB::transaction(function () use ($rule, $requestedByUserId, $now): AutomationRun {
+        return DB::transaction(function () use ($rule, $requestedByUserId, $now, $audienceMode): AutomationRun {
             $rule = AutomationRule::whereKey($rule->id)->lockForUpdate()->firstOrFail();
             $rule->loadMissing(['business.messagingConfiguration', 'location', 'messageTemplate', 'followUps.messageTemplate']);
             $this->assertLaunchable($rule);
-            [$eligible, $skipped] = $this->classify($rule, $now);
+            [$eligible, $skipped] = $this->classify($rule, $now, $audienceMode);
             if ($eligible->isEmpty()) {
                 throw ValidationException::withMessages(['audience' => ['No contacts are currently eligible. Add SMS consent or review the skipped-contact reasons.']]);
             }
@@ -147,7 +147,7 @@ class ContactAutomationLauncher
     }
 
     /** @return array{0: Collection<int, Customer>, 1: array<string, int>} */
-    private function classify(AutomationRule $rule, CarbonImmutable $now): array
+    private function classify(AutomationRule $rule, CarbonImmutable $now, string $audienceMode): array
     {
         $frequencyStart = $now->subDays($rule->frequency_limit_days);
         $customers = Customer::query()
@@ -171,6 +171,10 @@ class ContactAutomationLauncher
             ->whereDoesntHave('delivery')
             ->pluck('customer_id')
             ->flip();
+        // A prior enrollment remains prior even after the frequency window expires.
+        $previousCustomerIds = AutomationDispatch::where('business_id', $rule->business_id)
+            ->where('automation_rule_id', $rule->id)->whereNotNull('customer_id')
+            ->pluck('customer_id')->flip();
         $eligible = collect();
         $skipped = [
             'inactive' => 0,
@@ -180,6 +184,7 @@ class ContactAutomationLauncher
             'review_already_confirmed' => 0,
             'frequency_limited' => 0,
             'already_scheduled' => 0,
+            'previously_included' => 0,
         ];
 
         foreach ($customers as $customer) {
@@ -190,6 +195,7 @@ class ContactAutomationLauncher
                 $customer->suppressions->isNotEmpty() => 'suppressed',
                 ! $this->hasConsent($customer, $now) => 'consent_missing',
                 $pendingCustomerIds->has($customer->id) => 'already_scheduled',
+                $audienceMode === 'new' && $previousCustomerIds->has($customer->id) => 'previously_included',
                 $rule->frequency_limit_days > 0 && $customer->messageDeliveries->isNotEmpty() => 'frequency_limited',
                 default => null,
             };

@@ -61,6 +61,7 @@ export default function AutomationsPage() {
   const [launchRule, setLaunchRule] = useState<Rule | null>(null);
   const [audience, setAudience] = useState<Audience | null>(null);
   const [launchBusy, setLaunchBusy] = useState(false);
+  const [audienceMode, setAudienceMode] = useState<"new" | "all">("new");
   const [message, setMessage] = useState("");
   async function load() {
     const [business, templateResult, ruleResult] = await Promise.all([
@@ -112,16 +113,27 @@ export default function AutomationsPage() {
       );
     }
   }
-  async function reviewLaunch(rule: Rule) {
+  async function removeRule(rule: Rule) {
+    if (!window.confirm(`Delete “${rule.name}”? Pending messages will be cancelled. Sent-message history will be retained.`)) return;
+    try {
+      await api(`/api/v1/automations/${rule.id}`, { method: "DELETE" }, true);
+      setMessage("Automation deleted. Pending messages cancelled; message history retained.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete automation.");
+    }
+  }
+  async function reviewLaunch(rule: Rule, mode: "new" | "all" = "new") {
     setLaunchBusy(true);
     setMessage("");
     try {
       const result = await api<{ data: Audience }>(
-        `/api/v1/automations/${rule.id}/audience`,
+        `/api/v1/automations/${rule.id}/audience?audience_mode=${mode}`,
         {},
         true,
       );
       setAudience(result.data);
+      setAudienceMode(mode);
       setLaunchRule(rule);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to calculate the eligible audience.");
@@ -135,7 +147,7 @@ export default function AutomationsPage() {
     try {
       const result = await api<{ data: { scheduled_count: number; skipped_count: number } }>(
         `/api/v1/automations/${launchRule.id}/launch`,
-        { method: "POST" },
+        { method: "POST", body: JSON.stringify({ audience_mode: audienceMode }) },
         true,
       );
       setMessage(`First messages queued immediately for ${result.data.scheduled_count} eligible contact${result.data.scheduled_count === 1 ? "" : "s"}. ${result.data.skipped_count} contact${result.data.skipped_count === 1 ? " was" : "s were"} skipped. Check customer message history for delivery status.`);
@@ -252,6 +264,7 @@ export default function AutomationsPage() {
                   >
                     Edit
                   </button>
+                  <button className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700" onClick={() => void removeRule(rule)}>Delete</button>
                 </div>
               </div>
               {rule.trigger_type === "contacts.manual" && rule.runs?.filter((run) => run.pending_first_count > 0).map((run) => (
@@ -322,7 +335,7 @@ export default function AutomationsPage() {
         />
       )}
       {launchRule && audience && (
-        <LaunchDialog rule={launchRule} audience={audience} busy={launchBusy} onClose={() => { setLaunchRule(null); setAudience(null); }} onLaunch={() => void launch()} />
+        <LaunchDialog rule={launchRule} audience={audience} mode={audienceMode} onMode={(mode) => void reviewLaunch(launchRule, mode)} busy={launchBusy} onClose={() => { if (!launchBusy) { setLaunchRule(null); setAudience(null); } }} onLaunch={() => void launch()} />
       )}
     </div>
   );
@@ -679,7 +692,7 @@ function formatDelay(minutes: number, trigger: Rule["trigger_type"], initial = f
   return `${Math.round(minutes / 1440)} day(s) ${suffix}`;
 }
 
-function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule; audience: Audience; busy: boolean; onClose: () => void; onLaunch: () => void }) {
+function LaunchDialog({ rule, audience, mode, onMode, busy, onClose, onLaunch }: { rule: Rule; audience: Audience; mode: "new" | "all"; onMode: (mode: "new" | "all") => void; busy: boolean; onClose: () => void; onLaunch: () => void }) {
   const labels: Record<string, string> = {
     inactive: "Inactive contacts",
     phone_missing: "Missing phone",
@@ -688,6 +701,7 @@ function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule;
     review_already_confirmed: "Review already confirmed",
     frequency_limited: "Recently messaged",
     already_scheduled: "Already scheduled",
+    previously_included: "Previously included in this automation",
   };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4">
@@ -696,6 +710,13 @@ function LaunchDialog({ rule, audience, busy, onClose, onLaunch }: { rule: Rule;
           <div><p className="eyebrow">Review audience</p><h2 className="mt-1 text-xl font-semibold">Send {rule.name}</h2></div>
           <button onClick={onClose}>×</button>
         </div>
+        <label className="mt-5 block text-sm font-semibold">Who should receive this automation?
+          <select className="mt-2 w-full rounded-lg border p-3" value={mode} disabled={busy} onChange={(event) => onMode(event.target.value as "new" | "all")}>
+            <option value="new">New contacts only (recommended)</option>
+            <option value="all">All eligible contacts</option>
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-ink/60">{mode === "new" ? "Only contacts never previously included in this automation. Adding contacts does not resend to previous recipients." : "May resend to previous recipients. Consent, opt-outs, frequency limits and pending-message checks still apply."}</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <AutomationMetric label="Eligible" value={audience.eligible_contacts} detail="Will be scheduled" />
           <AutomationMetric label="Skipped" value={audience.skipped_contacts} detail="Safety checks" />

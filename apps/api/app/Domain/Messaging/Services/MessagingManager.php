@@ -50,6 +50,7 @@ class MessagingManager
                 'visit.location.reviewDestinations',
             ]);
             abort_unless($dispatch->decision === 'scheduled' && $dispatch->scheduled_for?->lte(now()), 422, 'This message is not due.');
+            abort_unless($dispatch->rule?->status !== 'archived', 422, 'This automation was deleted.');
             $visit = $dispatch->visit;
             $business = $visit?->business ?? $dispatch->rule->business;
             $customer = $visit?->customer ?? $dispatch->customer;

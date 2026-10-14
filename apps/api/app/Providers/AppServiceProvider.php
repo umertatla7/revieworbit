@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\Automations\Models\AutomationRule;
+use App\Domain\Automations\Policies\AutomationRulePolicy;
 use App\Domain\Customers\Models\Customer;
 use App\Domain\Customers\Policies\CustomerPolicy;
 use App\Domain\Messaging\Contracts\MessagingProvider;
@@ -38,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
         Gate::policy(Customer::class, CustomerPolicy::class);
+        Gate::policy(AutomationRule::class, AutomationRulePolicy::class);
         $mailConfigurator->apply();
         Queue::before(function (JobProcessing $event) use ($mailConfigurator): void {
             $mailConfigurator->apply();

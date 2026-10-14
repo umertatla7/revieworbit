@@ -152,6 +152,31 @@ class CustomerController extends Controller
         return response()->json(status: 204);
     }
 
+    public function bulkDestroy(Request $request, DeleteCustomer $deleteCustomer, Auditor $auditor): JsonResponse
+    {
+        $data = $request->validate([
+            'customer_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'customer_ids.*' => ['required', 'string', 'distinct'],
+        ]);
+        $count = DB::transaction(function () use ($request, $data, $deleteCustomer, $auditor): int {
+            $models = Customer::where('business_id', $request->attributes->get('business')->id)
+                ->where('status', '!=', 'archived')->whereIn('id', $data['customer_ids'])
+                ->orderBy('id')->lockForUpdate()->get();
+            abort_unless($models->count() === count($data['customer_ids']), 404, 'One or more customers are unavailable. Refresh the list and try again.');
+            foreach ($models as $model) {
+                Gate::authorize('delete', $model);
+            }
+            foreach ($models as $model) {
+                $deleteCustomer->handle($model);
+                $auditor->record($request, 'customer.deleted', $model, ['bulk' => true]);
+            }
+
+            return $models->count();
+        });
+
+        return response()->json(['data' => ['deleted_count' => $count]]);
+    }
+
     public function consent(Request $request, string $customer, Auditor $auditor): JsonResponse
     {
         $model = $this->scoped($request, $customer);

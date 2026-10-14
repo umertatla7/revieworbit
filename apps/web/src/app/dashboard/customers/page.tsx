@@ -88,6 +88,7 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<Customer | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
 
   async function load(page = 1, values = filters) {
     const params = new URLSearchParams({ page: String(page) });
@@ -100,6 +101,7 @@ export default function CustomersPage() {
       true,
     );
     setCustomers(result.data);
+    setCheckedIds([]);
     setMeta(result.meta);
   }
 
@@ -132,6 +134,24 @@ export default function CustomersPage() {
           ? error.message
           : "Unable to load customer activity.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSelected() {
+    if (!checkedIds.length || !window.confirm(`Delete ${checkedIds.length} selected customers? Pending messages will be cancelled. Message and opt-out history will be retained.`)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ data: { deleted_count: number } }>("/api/v1/customers/bulk-delete", {
+        method: "POST", body: JSON.stringify({ customer_ids: checkedIds }),
+      }, true);
+      setCheckedIds([]);
+      await load();
+      setMessage(`${result.data.deleted_count} customers deleted. Pending messages cancelled; history retained.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete selected customers.");
     } finally {
       setBusy(false);
     }
@@ -429,6 +449,14 @@ export default function CustomersPage() {
           <span>Source</span>
           <span></span>
         </div>
+        <div className="flex flex-wrap items-center gap-4 border-b border-ink/10 px-5 py-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" disabled={busy || !customers.length} checked={customers.length > 0 && customers.every((customer) => checkedIds.includes(customer.id))} onChange={(event) => setCheckedIds(event.target.checked ? customers.map((customer) => customer.id) : [])} />
+            Select all on this page
+          </label>
+          <span className="text-xs text-ink/60">{checkedIds.length} selected · selection clears when the page or filters change</span>
+          <button className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-40" disabled={busy || !checkedIds.length} onClick={() => void removeSelected()}>Delete selected ({checkedIds.length})</button>
+        </div>
         <div className="divide-y divide-ink/8">
           {customers.length ? (
             customers.map((customer) => {
@@ -440,6 +468,7 @@ export default function CustomersPage() {
                   className="grid gap-4 px-5 py-4 transition hover:bg-paper/50 lg:grid-cols-[1.2fr_1fr_1fr_1fr_110px_90px] lg:items-center"
                 >
                   <div className="flex items-center gap-3">
+                    <input type="checkbox" aria-label={`Select ${customer.first_name} ${customer.last_name ?? ""}`} disabled={busy} checked={checkedIds.includes(customer.id)} onChange={(event) => setCheckedIds((ids) => event.target.checked ? [...ids, customer.id] : ids.filter((id) => id !== customer.id))} />
                     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-forest/8 text-xs font-bold text-forest">
                       {customer.first_name[0]}
                       {customer.last_name?.[0] ?? ""}

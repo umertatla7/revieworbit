@@ -146,6 +146,7 @@ Route::prefix('api/v1')->group(function (): void {
                 Route::post('/invitations', [BusinessController::class, 'invite'])->middleware('business.role:owner');
 
                 Route::post('/customers/import', [CustomerController::class, 'import']);
+                Route::post('/customers/bulk-delete', [CustomerController::class, 'bulkDestroy']);
                 Route::post('/customers/import-csv', [CustomerController::class, 'importCsv']);
                 Route::post('/customers/{customer}/consents', [CustomerController::class, 'consent']);
                 Route::post('/customers/{customer}/suppressions', [CustomerController::class, 'suppress']);
@@ -169,6 +170,7 @@ Route::prefix('api/v1')->group(function (): void {
 
                 Route::post('/automations', [AutomationController::class, 'store']);
                 Route::patch('/automations/{automation}', [AutomationController::class, 'update']);
+                Route::delete('/automations/{automation}', [AutomationController::class, 'destroy']);
                 Route::get('/automations/{automation}/audience', [AutomationController::class, 'audience']);
                 Route::post('/automations/{automation}/launch', [AutomationController::class, 'launch'])->middleware('throttle:3,1');
                 Route::post('/automations/{automation}/runs/{run}/send-now', [AutomationController::class, 'sendPendingNow'])->middleware('throttle:3,1');
