@@ -34,7 +34,9 @@ type Rule = {
   follow_ups: FollowUp[];
   runs?: { id: string; status: string; scheduled_count: number; skipped_count: number; pending_first_count: number; created_at: string }[];
 };
+type AudienceMode = "new" | "all" | "selected";
 type Audience = {
+  contacts: { id: string; name: string; reason: string | null }[];
   total_contacts: number;
   eligible_contacts: number;
   new_plan_customers: number;
@@ -61,7 +63,9 @@ export default function AutomationsPage() {
   const [launchRule, setLaunchRule] = useState<Rule | null>(null);
   const [audience, setAudience] = useState<Audience | null>(null);
   const [launchBusy, setLaunchBusy] = useState(false);
-  const [audienceMode, setAudienceMode] = useState<"new" | "all">("new");
+  const [audienceMode, setAudienceMode] = useState<AudienceMode>("new");
+  const [customerIds, setCustomerIds] = useState<string[]>([]);
+  const [includeRecent, setIncludeRecent] = useState(false);
   const [message, setMessage] = useState("");
   async function load() {
     const [business, templateResult, ruleResult] = await Promise.all([
@@ -123,17 +127,21 @@ export default function AutomationsPage() {
       setMessage(error instanceof Error ? error.message : "Unable to delete automation.");
     }
   }
-  async function reviewLaunch(rule: Rule, mode: "new" | "all" = "new") {
+  async function reviewLaunch(rule: Rule, mode: AudienceMode = "new", ids: string[] = [], recent = false) {
     setLaunchBusy(true);
     setMessage("");
     try {
+      const params = new URLSearchParams({ audience_mode: mode, include_recent: recent ? "1" : "0" });
+      ids.forEach((id) => params.append("customer_ids[]", id));
       const result = await api<{ data: Audience }>(
-        `/api/v1/automations/${rule.id}/audience?audience_mode=${mode}`,
+        `/api/v1/automations/${rule.id}/audience?${params}`,
         {},
         true,
       );
       setAudience(result.data);
       setAudienceMode(mode);
+      setCustomerIds(ids);
+      setIncludeRecent(recent);
       setLaunchRule(rule);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to calculate the eligible audience.");
@@ -147,7 +155,7 @@ export default function AutomationsPage() {
     try {
       const result = await api<{ data: { scheduled_count: number; skipped_count: number } }>(
         `/api/v1/automations/${launchRule.id}/launch`,
-        { method: "POST", body: JSON.stringify({ audience_mode: audienceMode }) },
+        { method: "POST", body: JSON.stringify({ audience_mode: audienceMode, customer_ids: customerIds, include_recent: includeRecent }) },
         true,
       );
       setMessage(`First messages queued immediately for ${result.data.scheduled_count} eligible contact${result.data.scheduled_count === 1 ? "" : "s"}. ${result.data.skipped_count} contact${result.data.skipped_count === 1 ? " was" : "s were"} skipped. Check customer message history for delivery status.`);
@@ -335,7 +343,7 @@ export default function AutomationsPage() {
         />
       )}
       {launchRule && audience && (
-        <LaunchDialog rule={launchRule} audience={audience} mode={audienceMode} onMode={(mode) => void reviewLaunch(launchRule, mode)} busy={launchBusy} onClose={() => { if (!launchBusy) { setLaunchRule(null); setAudience(null); } }} onLaunch={() => void launch()} />
+        <LaunchDialog rule={launchRule} audience={audience} mode={audienceMode} ids={customerIds} recent={includeRecent} error={message} onOptions={(mode, ids, recent) => void reviewLaunch(launchRule, mode, ids, recent)} busy={launchBusy} onClose={() => { if (!launchBusy) { setLaunchRule(null); setAudience(null); } }} onLaunch={() => void launch()} />
       )}
     </div>
   );
@@ -692,7 +700,7 @@ function formatDelay(minutes: number, trigger: Rule["trigger_type"], initial = f
   return `${Math.round(minutes / 1440)} day(s) ${suffix}`;
 }
 
-function LaunchDialog({ rule, audience, mode, onMode, busy, onClose, onLaunch }: { rule: Rule; audience: Audience; mode: "new" | "all"; onMode: (mode: "new" | "all") => void; busy: boolean; onClose: () => void; onLaunch: () => void }) {
+function LaunchDialog({ rule, audience, mode, ids, recent, error, onOptions, busy, onClose, onLaunch }: { rule: Rule; audience: Audience; mode: AudienceMode; ids: string[]; recent: boolean; error: string; onOptions: (mode: AudienceMode, ids: string[], recent: boolean) => void; busy: boolean; onClose: () => void; onLaunch: () => void }) {
   const labels: Record<string, string> = {
     inactive: "Inactive contacts",
     phone_missing: "Missing phone",
@@ -702,20 +710,31 @@ function LaunchDialog({ rule, audience, mode, onMode, busy, onClose, onLaunch }:
     frequency_limited: "Recently messaged",
     already_scheduled: "Already scheduled",
     previously_included: "Previously included in this automation",
+    not_selected: "Not selected",
   };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/55 p-4">
-      <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div><p className="eyebrow">Review audience</p><h2 className="mt-1 text-xl font-semibold">Send {rule.name}</h2></div>
           <button onClick={onClose}>×</button>
         </div>
         <label className="mt-5 block text-sm font-semibold">Who should receive this automation?
-          <select className="mt-2 w-full rounded-lg border p-3" value={mode} disabled={busy} onChange={(event) => onMode(event.target.value as "new" | "all")}>
+          <select className="mt-2 w-full rounded-lg border p-3" value={mode} disabled={busy} onChange={(event) => onOptions(event.target.value as AudienceMode, [], false)}>
             <option value="new">New contacts only (recommended)</option>
             <option value="all">All eligible contacts</option>
+            <option value="selected">Selected contacts</option>
           </select>
         </label>
+        {mode !== "new" && <label className="mt-3 flex items-start gap-2 text-xs"><input type="checkbox" checked={recent} disabled={busy} onChange={(event) => onOptions(mode, ids, event.target.checked)} />Include recently messaged contacts — I intend to send another message (overrides the frequency limit for this run only).</label>}
+        {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+        <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border p-3">
+          <p className="mb-2 text-xs font-semibold">Contacts and eligibility</p>
+          {audience.contacts.map((contact) => <label key={contact.id} className="flex items-center justify-between gap-3 py-2 text-xs">
+            <span className="flex items-center gap-2">{mode === "selected" && <input type="checkbox" disabled={busy || Boolean(contact.reason)} checked={ids.includes(contact.id)} onChange={(event) => onOptions(mode, event.target.checked ? [...ids, contact.id] : ids.filter((id) => id !== contact.id), recent)} />}{contact.name}</span>
+            <span>{contact.reason ? labels[contact.reason] ?? contact.reason : mode === "selected" && !ids.includes(contact.id) ? "Not selected" : "Eligible"}</span>
+          </label>)}
+        </div>
         <p className="mt-2 text-xs text-ink/60">{mode === "new" ? "Only contacts never previously included in this automation. Adding contacts does not resend to previous recipients." : "May resend to previous recipients. Consent, opt-outs, frequency limits and pending-message checks still apply."}</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <AutomationMetric label="Eligible" value={audience.eligible_contacts} detail="Will be scheduled" />
@@ -726,7 +745,7 @@ function LaunchDialog({ rule, audience, mode, onMode, busy, onClose, onLaunch }:
           <div className="mt-5 rounded-xl bg-paper p-4"><p className="text-xs font-semibold">Skipped contacts</p><div className="mt-2 space-y-1 text-xs text-ink/55">{Object.entries(audience.skipped_summary).map(([reason, count]) => <div key={reason} className="flex justify-between"><span>{labels[reason] ?? reason}</span><strong>{count}</strong></div>)}</div></div>
         )}
         <p className="mt-5 rounded-xl border border-forest/15 bg-mint/15 p-4 text-xs leading-5 text-ink/65">
-          Only active contacts with valid SMS consent are included. Opted-out contacts, confirmed reviewers, recently messaged contacts, and contacts already scheduled are excluded. Messages include your business name and STOP instructions.
+          Only active contacts with valid SMS consent are included. Opted-out contacts, confirmed reviewers and contacts already scheduled are always excluded. Recent contacts are excluded unless you explicitly enable resending. Messages include your business name and STOP instructions. Direct review links do not track clicks.
         </p>
         {audience.first_message_at && <p className="mt-3 text-xs text-ink/50">First messages queue immediately when you click Send. Twilio delivery status will appear in each customer’s message history. Follow-ups respect quiet hours.</p>}
         <div className="mt-6 flex justify-end gap-2"><button className="button-secondary" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy || audience.eligible_contacts === 0} onClick={onLaunch}>{busy ? "Scheduling…" : `Send to ${audience.eligible_contacts} eligible contact${audience.eligible_contacts === 1 ? "" : "s"}`}</button></div>

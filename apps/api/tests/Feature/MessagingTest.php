@@ -73,7 +73,7 @@ class MessagingTest extends TestCase
 
     public function test_due_sms_is_recorded_through_the_fake_provider_without_exposing_the_phone(): void
     {
-        [, $business, , $customer, , , $dispatch] = $this->fixture();
+        [, $business, $location, $customer, , , $dispatch] = $this->fixture();
         $this->configuration($business, sms: true);
 
         $delivery = app(MessagingManager::class)->send($dispatch);
@@ -87,7 +87,8 @@ class MessagingTest extends TestCase
         $this->assertDatabaseCount('review_links', 1);
         $this->assertSame('automation', $delivery->delivery_type);
         $this->assertGreaterThan(0, $delivery->billable_credits);
-        $this->assertStringContainsString('https://api.revieworbit.test/r/', $delivery->body_snapshot);
+        $this->assertStringContainsString($location->google_review_url, $delivery->body_snapshot);
+        $this->assertStringNotContainsString('https://api.revieworbit.test/r/', $delivery->body_snapshot);
         $this->assertArrayNotHasKey('phone_e164', $delivery->getAttributes());
 
         $sameDelivery = app(MessagingManager::class)->send($dispatch);
@@ -422,6 +423,31 @@ class MessagingTest extends TestCase
         $this->assertSame('archived', $second->fresh()->status);
         $this->assertSame('active', $foreign->fresh()->status);
         $this->assertSame('cancelled', $dispatch->fresh()->decision);
+    }
+
+    public function test_selected_audience_and_explicit_recent_resend_keep_consent_and_tenant_checks(): void
+    {
+        Queue::fake();
+        [$owner, $business, $location, $customer, $template, $rule, $dispatch] = $this->fixture();
+        $this->configuration($business, sms: true);
+        $template->update(['location_id' => $location->id]);
+        app(MessagingManager::class)->send($dispatch);
+        $rule->update(['trigger_type' => 'contacts.manual']);
+        $launcher = app(ContactAutomationLauncher::class);
+        $this->assertSame(0, $launcher->preview($rule, audienceMode: 'all')['eligible_contacts']);
+        $this->assertSame('frequency_limited', $launcher->preview($rule, audienceMode: 'all')['contacts'][0]['reason']);
+        $this->assertSame(1, $launcher->preview($rule, audienceMode: 'all', includeRecent: true)['eligible_contacts']);
+        $this->assertSame(0, $launcher->preview($rule, audienceMode: 'selected', includeRecent: true)['eligible_contacts']);
+        $this->assertSame(1, $launcher->preview($rule, audienceMode: 'selected', customerIds: [$customer->id], includeRecent: true)['eligible_contacts']);
+        [, , , $foreign] = $this->fixture('Foreign');
+        $headers = ['X-Business-ID' => $business->id];
+        $this->actingAs($owner)->postJson('/api/v1/automations/'.$rule->id.'/launch', ['audience_mode' => 'selected', 'customer_ids' => [$foreign->id], 'include_recent' => true], $headers)->assertUnprocessable();
+        $run = $launcher->launch($rule, $owner->id, audienceMode: 'selected', customerIds: [$customer->id], includeRecent: true);
+        $this->assertSame([$customer->id], $run->dispatches()->pluck('customer_id')->all());
+        $this->assertSame(0, $launcher->preview($rule, audienceMode: 'all', includeRecent: true)['eligible_contacts']);
+        $run->dispatches()->update(['decision' => 'cancelled']);
+        $customer->consents()->update(['status' => 'revoked']);
+        $this->assertSame(0, $launcher->preview($rule, audienceMode: 'all', includeRecent: true)['eligible_contacts']);
     }
 
     public function test_automation_deletion_is_tenant_scoped_cancels_pending_and_retains_history(): void

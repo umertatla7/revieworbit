@@ -11,7 +11,6 @@ use App\Domain\Messaging\Models\MessageDelivery;
 use App\Domain\Tenancy\Enums\RecordStatus;
 use App\Domain\Tenancy\Services\PlanEntitlements;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -19,12 +18,12 @@ class ContactAutomationLauncher
 {
     public function __construct(private readonly PlanEntitlements $entitlements) {}
 
-    public function preview(AutomationRule $rule, ?CarbonImmutable $now = null, string $audienceMode = 'new'): array
+    public function preview(AutomationRule $rule, ?CarbonImmutable $now = null, string $audienceMode = 'new', array $customerIds = [], bool $includeRecent = false): array
     {
         $now ??= CarbonImmutable::now('UTC');
         $rule->loadMissing(['business.messagingConfiguration', 'location', 'messageTemplate', 'followUps.messageTemplate']);
         $this->assertLaunchable($rule);
-        [$eligible, $skipped] = $this->classify($rule, $now, $audienceMode);
+        [$eligible, $skipped, $contacts] = $this->classify($rule, $now, $audienceMode, $customerIds, $includeRecent);
         $limits = $this->entitlements->for($rule->business);
         $alreadyCounted = MessageDelivery::query()
             ->where('business_id', $rule->business_id)
@@ -35,6 +34,7 @@ class ContactAutomationLauncher
         $newCustomers = $eligible->pluck('id')->diff($alreadyCounted)->count();
 
         return [
+            'contacts' => $contacts,
             'total_contacts' => $eligible->count() + array_sum($skipped),
             'eligible_contacts' => $eligible->count(),
             'new_plan_customers' => $newCustomers,
@@ -47,15 +47,15 @@ class ContactAutomationLauncher
         ];
     }
 
-    public function launch(AutomationRule $rule, string $requestedByUserId, ?CarbonImmutable $now = null, string $audienceMode = 'new'): AutomationRun
+    public function launch(AutomationRule $rule, string $requestedByUserId, ?CarbonImmutable $now = null, string $audienceMode = 'new', array $customerIds = [], bool $includeRecent = false): AutomationRun
     {
         $now ??= CarbonImmutable::now('UTC');
 
-        return DB::transaction(function () use ($rule, $requestedByUserId, $now, $audienceMode): AutomationRun {
+        return DB::transaction(function () use ($rule, $requestedByUserId, $now, $audienceMode, $customerIds, $includeRecent): AutomationRun {
             $rule = AutomationRule::whereKey($rule->id)->lockForUpdate()->firstOrFail();
             $rule->loadMissing(['business.messagingConfiguration', 'location', 'messageTemplate', 'followUps.messageTemplate']);
             $this->assertLaunchable($rule);
-            [$eligible, $skipped] = $this->classify($rule, $now, $audienceMode);
+            [$eligible, $skipped] = $this->classify($rule, $now, $audienceMode, $customerIds, $includeRecent);
             if ($eligible->isEmpty()) {
                 throw ValidationException::withMessages(['audience' => ['No contacts are currently eligible. Add SMS consent or review the skipped-contact reasons.']]);
             }
@@ -113,6 +113,8 @@ class ContactAutomationLauncher
                             ? $now
                             : $this->outsideQuietHours($now->addMinutes($step['delay_minutes']), $rule),
                         'decision_context' => [
+                            'audience_mode' => $audienceMode,
+                            'include_recent' => $includeRecent,
                             'trigger_type' => 'contacts.manual',
                             'follow_up_id' => $step['follow_up_id'],
                             'cancel_after_click' => $step['cancel_after_click'],
@@ -146,8 +148,7 @@ class ContactAutomationLauncher
         });
     }
 
-    /** @return array{0: Collection<int, Customer>, 1: array<string, int>} */
-    private function classify(AutomationRule $rule, CarbonImmutable $now, string $audienceMode): array
+    private function classify(AutomationRule $rule, CarbonImmutable $now, string $audienceMode, array $customerIds, bool $includeRecent): array
     {
         $frequencyStart = $now->subDays($rule->frequency_limit_days);
         $customers = Customer::query()
@@ -176,6 +177,10 @@ class ContactAutomationLauncher
             ->where('automation_rule_id', $rule->id)->whereNotNull('customer_id')
             ->pluck('customer_id')->flip();
         $eligible = collect();
+        $contacts = [];
+        if (array_diff($customerIds, $customers->pluck('id')->all())) {
+            throw ValidationException::withMessages(['customer_ids' => ['One or more selected contacts are unavailable. Refresh the audience.']]);
+        }
         $skipped = [
             'inactive' => 0,
             'phone_missing' => 0,
@@ -185,6 +190,7 @@ class ContactAutomationLauncher
             'frequency_limited' => 0,
             'already_scheduled' => 0,
             'previously_included' => 0,
+            'not_selected' => 0,
         ];
 
         foreach ($customers as $customer) {
@@ -196,9 +202,13 @@ class ContactAutomationLauncher
                 ! $this->hasConsent($customer, $now) => 'consent_missing',
                 $pendingCustomerIds->has($customer->id) => 'already_scheduled',
                 $audienceMode === 'new' && $previousCustomerIds->has($customer->id) => 'previously_included',
-                $rule->frequency_limit_days > 0 && $customer->messageDeliveries->isNotEmpty() => 'frequency_limited',
+                ! $includeRecent && $rule->frequency_limit_days > 0 && $customer->messageDeliveries->isNotEmpty() => 'frequency_limited',
                 default => null,
             };
+            $contacts[] = ['id' => $customer->id, 'name' => trim($customer->first_name.' '.$customer->last_name), 'reason' => $reason];
+            if ($reason === null && $audienceMode === 'selected' && ! in_array($customer->id, $customerIds, true)) {
+                $reason = 'not_selected';
+            }
             if ($reason === null) {
                 $eligible->push($customer);
             } else {
@@ -206,7 +216,7 @@ class ContactAutomationLauncher
             }
         }
 
-        return [$eligible, array_filter($skipped)];
+        return [$eligible, array_filter($skipped), $contacts];
     }
 
     private function hasConsent(Customer $customer, CarbonImmutable $now): bool

@@ -87,7 +87,8 @@ class MessagingManager
                 'destination_url' => $destinationUrl,
                 'expires_at' => now()->addYear(),
             ]);
-            $reviewUrl = rtrim(config('services.twilio.tracking_base_url'), '/').'/r/'.$plainToken;
+            // Send the trusted destination itself, not an opaque platform redirect.
+            $reviewUrl = $destinationUrl;
             $values = [
                 'customer_first_name' => $customer->first_name,
                 'customer_last_name' => $customer->last_name,

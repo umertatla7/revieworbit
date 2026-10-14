@@ -107,24 +107,35 @@ class AutomationController extends Controller
     {
         $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
 
-        $data = $request->validate(['audience_mode' => ['sometimes', Rule::in(['new', 'all'])]]);
+        $data = $this->audienceOptions($request);
 
-        return response()->json(['data' => $launcher->preview($rule, audienceMode: $data['audience_mode'] ?? 'new')]);
+        return response()->json(['data' => $launcher->preview($rule, audienceMode: $data['audience_mode'] ?? 'new', customerIds: $data['customer_ids'] ?? [], includeRecent: (bool) ($data['include_recent'] ?? false))]);
     }
 
     public function launch(Request $request, string $automation, ContactAutomationLauncher $launcher, Auditor $auditor): JsonResponse
     {
         $rule = AutomationRule::where('business_id', $request->attributes->get('business')->id)->findOrFail($automation);
-        $data = $request->validate(['audience_mode' => ['sometimes', Rule::in(['new', 'all'])]]);
-        $run = $launcher->launch($rule, $request->user()->id, audienceMode: $data['audience_mode'] ?? 'new');
+        $data = $this->audienceOptions($request);
+        $run = $launcher->launch($rule, $request->user()->id, audienceMode: $data['audience_mode'] ?? 'new', customerIds: $data['customer_ids'] ?? [], includeRecent: (bool) ($data['include_recent'] ?? false));
         $auditor->record($request, 'automation.contact_list_launched', $run, [
             'automation_rule_id' => $rule->id,
             'audience_mode' => $data['audience_mode'] ?? 'new',
+            'include_recent' => (bool) ($data['include_recent'] ?? false),
             'scheduled_count' => $run->scheduled_count,
             'skipped_count' => $run->skipped_count,
         ]);
 
         return response()->json(['data' => $run], 202);
+    }
+
+    private function audienceOptions(Request $request): array
+    {
+        return $request->validate([
+            'audience_mode' => ['sometimes', Rule::in(['new', 'all', 'selected'])],
+            'customer_ids' => ['sometimes', 'array', 'max:500'],
+            'customer_ids.*' => ['string', 'distinct'],
+            'include_recent' => ['sometimes', 'boolean'],
+        ]);
     }
 
     public function sendPendingNow(Request $request, string $automation, string $run, ContactAutomationLauncher $launcher, Auditor $auditor): JsonResponse
