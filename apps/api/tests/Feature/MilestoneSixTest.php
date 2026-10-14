@@ -199,6 +199,27 @@ class MilestoneSixTest extends TestCase
         $this->assertDatabaseHas('customers', ['business_id' => $business->id, 'first_name' => 'Ava, Marie']);
     }
 
+    public function test_deleted_customers_can_be_reimported_and_manually_readded_without_losing_opt_outs(): void
+    {
+        [$owner, $business, , $customer] = $this->fixture();
+        $headers = ['X-Business-ID' => $business->id];
+        $phone = $customer->phone_e164;
+        $customer->consents()->update(['status' => 'revoked']);
+        $this->actingAs($owner)->deleteJson('/api/v1/customers/'.$customer->id, [], $headers)->assertNoContent();
+        $file = UploadedFile::fake()->createWithContent('customers.csv', "first_name,last_name,email,phone,sms_consent\nReturned,,,{$phone},yes\n");
+        $this->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '1'], $headers)->assertOk()->assertJsonPath('data.valid_rows', 1);
+        $this->assertSame('archived', $customer->fresh()->status);
+        $this->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '0'], $headers)->assertAccepted()->assertJsonPath('data.created', 1)->assertJsonPath('data.skipped', 0);
+        $this->assertSame('active', $customer->fresh()->status);
+        $this->assertSame('Returned', $customer->fresh()->first_name);
+        $this->assertSame('revoked', $customer->fresh()->latestSmsConsent->status);
+        $this->post('/api/v1/customers/import-csv', ['file' => $file, 'preview' => '1'], $headers)->assertOk()->assertJsonPath('data.valid_rows', 0);
+        $this->deleteJson('/api/v1/customers/'.$customer->id, [], $headers)->assertNoContent();
+        $this->postJson('/api/v1/customers', ['first_name' => 'Manual', 'phone' => $phone], $headers)->assertCreated()->assertJsonPath('data.id', $customer->id)->assertJsonPath('data.status', 'active');
+        $this->assertSame(1, Customer::where('business_id', $business->id)->where('phone_hash', $customer->phone_hash)->count());
+        $this->assertSame('revoked', $customer->fresh()->latestSmsConsent->status);
+    }
+
     public function test_csv_import_accepts_spreadsheet_phone_formats_and_case_insensitive_consent(): void
     {
         [$owner, $business] = $this->fixture();

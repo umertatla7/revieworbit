@@ -25,6 +25,12 @@ list records within the authenticated business and authorized for deletion; othe
 entire request fails without changes. Each deletion is audited. Customers are archived,
 pending sends cancelled, and message/consent/opt-out history retained.
 
+Reimporting or manually adding an archived phone number restores the existing tenant-scoped
+customer identity with the newly supplied profile details. CSV preview accepts archived
+matches without modifying them. Active duplicates and repeated phones within a file remain
+rejected. Restoration is audited and preserves delivery history, review confirmation and
+opt-outs; CSV consent flags cannot override a prior revocation or active suppression.
+
 ## Direct review URLs
 
 New automated messages render the configured location/template destination URL directly,

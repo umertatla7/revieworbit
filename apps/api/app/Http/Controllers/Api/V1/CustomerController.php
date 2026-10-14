@@ -324,7 +324,7 @@ class CustomerController extends Controller
                 continue;
             }
             $phoneHash = hash('sha256', $row['phone']);
-            if (isset($seenPhones[$phoneHash]) || Customer::where('business_id', $business->id)->where('phone_hash', $phoneHash)->exists()) {
+            if (isset($seenPhones[$phoneHash]) || Customer::where('business_id', $business->id)->where('phone_hash', $phoneHash)->where('status', '!=', 'archived')->exists()) {
                 $errors[] = ['row' => $line, 'reason' => 'This phone number already exists in this business or appears earlier in this file.'];
 
                 continue;
@@ -345,7 +345,9 @@ class CustomerController extends Controller
                 $consentSource = ($row['consent_source'] ?? '') ?: 'import';
                 unset($row['sms_consent'], $row['consent_source']);
                 $customer = $this->createCustomer($business->id, [...$row, 'source' => 'import']);
-                if (in_array($smsConsent, ['yes', 'granted'], true)) {
+                if (in_array($smsConsent, ['yes', 'granted'], true)
+                    && ! $customer->suppressions()->where('channel', 'sms')->whereNull('released_at')->exists()
+                    && $customer->latestSmsConsent?->status !== 'revoked') {
                     $customer->consents()->create([
                         'business_id' => $business->id,
                         'channel' => 'sms',
@@ -387,7 +389,23 @@ class CustomerController extends Controller
         $phone = $this->phoneFields($data['phone']);
         unset($data['phone']);
 
-        return Customer::create([...$data, ...$phone, 'business_id' => $businessId]);
+        return DB::transaction(function () use ($businessId, $data, $phone): Customer {
+            $existing = $phone['phone_hash']
+                ? Customer::where('business_id', $businessId)->where('phone_hash', $phone['phone_hash'])->lockForUpdate()->first()
+                : null;
+            if ($existing?->status === 'archived') {
+                // Restore the identity instead of losing consent, STOP, and delivery history.
+                $existing->update([
+                    'last_name' => null, 'email' => null,
+                    ...$data, ...$phone, 'status' => $data['status'] ?? 'active',
+                ]);
+                app(Auditor::class)->record(request(), 'customer.restored', $existing, ['source' => $existing->source]);
+
+                return $existing->fresh();
+            }
+
+            return Customer::create([...$data, ...$phone, 'business_id' => $businessId]);
+        });
     }
 
     private function phoneFields(?string $phone): array
